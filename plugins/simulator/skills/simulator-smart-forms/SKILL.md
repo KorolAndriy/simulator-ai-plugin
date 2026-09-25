@@ -471,6 +471,30 @@ Corezoid credentials are optional at creation time and can be configured later.
 
 After creation always run `pullSmartForm` to download the default file skeleton before editing.
 
+### A form created from a template, with its own Corezoid project
+
+The **Create Smart Form** dialog of the new (SDUI) interface — not the legacy one — and sim-api's
+JSON-RPC method `application/install` (`POST /api/2.0/rpc`; there is no MCP tool for it yet) create
+a form from a template instead of
+the empty skeleton: `application/template/list` names them (`empty`, `basic` = the interactive
+guide "How a Smart Form works"). An install is an **import task**: it needs the workspace's
+`import_export:management` permission, and the form exists once the task completes
+(`task/get` → `details.actor.id` is the new form's actor id).
+
+What an install leaves behind, so you do not redo it:
+
+- a Corezoid project of the form's own, with `develop` and `production` stages and a `handler`
+  process in each;
+- **both envs already bound** to those processes (`procId`, `projectId`, `stageId` in the env
+  credentials) — no `updateSmartFormEnv` is needed to make the form work;
+- `data.corezoid` on the form's actor (`status: ready`, the project and per-env process ids),
+  which the Smart Form Editor reads for its **Open in Corezoid** link.
+
+Pointing an env of such a form at **another process** (`updateSmartFormEnv` with a different
+`procId`) works as always, but the env then no longer runs the project it was installed with: the
+link reports `detached` and the editor says so. Do it only when the user means to move the env.
+Rotating the key or secret on the same `procId` keeps the link `ready`.
+
 ---
 
 ## Working with Releases

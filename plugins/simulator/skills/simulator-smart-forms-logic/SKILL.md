@@ -768,6 +768,13 @@ the bound process. Carry them forward to Step F.
 
 ### Step F — bind the bound process to BOTH Smart Form envs
 
+**Skip this step for a form installed from a template** (the new interface's Create Smart Form
+dialog / sim-api `application/install`): both envs are already bound to the `handler` process of the
+form's own Corezoid project, and the editor links to it. Edit that process instead (§4). Pointing
+either env at a different `procId` with `updateSmartFormEnv` moves it off the installed project — the
+form's Corezoid link turns `detached` and the Smart Form Editor shows a note — so do it only when the
+user asks for it; rotating the key on the same process is harmless.
+
 Every Smart Form has **two envs** (`develop` and `production`), and **each one
 has its own independent Corezoid binding**. Setting credentials on one env does
 **not** populate the other — without an explicit second call, `production`
