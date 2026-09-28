@@ -14,6 +14,10 @@
 - Codex MCP startup no longer depends on `CLAUDE_PLUGIN_ROOT`: the launcher keeps the user's
   workspace in `SIMULATOR_WORK_DIR` and resolves the installed plugin root separately, so Codex
   completes the MCP initialize handshake after a marketplace install.
+- Layer reads through `/graph_layers/paginated` (pullGraphFile, pushGraphFile, getAllLayerPlacements,
+  compactGraphLayout, pruneLongEdges) stopped at the first short page. The server applies LIMIT before it
+  drops deleted actors and edges, so one deleted element made a page short and silently cut off the rest
+  of the layer. Pages are now read until an empty one.
 
 ### Changed
 - bump github.com/mark3labs/mcp-go from 0.58.0 to 1.1.0 (replaces #108, which was based on `main`)

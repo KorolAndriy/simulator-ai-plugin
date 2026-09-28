@@ -107,7 +107,8 @@ func fetchLayerActors(ctx context.Context, layerID string) ([]layerActor, error)
 			return nil, fmt.Errorf("parse layer actors: %w (body: %.200s)", err, body)
 		}
 		all = append(all, page.Data...)
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit
@@ -132,7 +133,8 @@ func fetchLayerEdges(ctx context.Context, layerID string) ([]layerEdge, error) {
 			return nil, fmt.Errorf("parse layer edges: %w (body: %.200s)", err, body)
 		}
 		all = append(all, page.Data...)
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit
