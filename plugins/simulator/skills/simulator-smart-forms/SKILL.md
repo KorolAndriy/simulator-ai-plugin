@@ -476,8 +476,8 @@ After creation always run `pullSmartForm` to download the default file skeleton 
 The **Create Smart Form** dialog of the new (SDUI) interface — not the legacy one — and sim-api's
 JSON-RPC method `application/install` (`POST /api/2.0/rpc`; there is no MCP tool for it yet) create
 a form from a template instead of
-the empty skeleton: `application/template/list` names them (`empty`, `basic` = the interactive
-guide "How a Smart Form works"). An install is an **import task**: it needs the workspace's
+the empty skeleton: `application/template/list` names them (`empty`, `basic` = "Getting
+started", a four-page starter: Welcome, Try it, Your data, Next steps). An install is an **import task**: it needs the workspace's
 `import_export:management` permission, and the form exists once the task completes
 (`task/get` → `details.actor.id` is the new form's actor id).
 
