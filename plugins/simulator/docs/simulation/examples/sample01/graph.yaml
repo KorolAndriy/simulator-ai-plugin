@@ -1,0 +1,171 @@
+layerId: ''
+actors:
+- id: product
+  title: Product
+  formName: product
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: product
+    origin_id: null
+    created_by: null
+    state: {}
+- id: client_a
+  title: Client A
+  formName: client
+  data:
+    budget: 120
+    status: prospect
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: client
+    origin_id: null
+    created_by: null
+    state: {}
+- id: client_b
+  title: Client B
+  formName: client
+  data:
+    budget: 90
+    status: prospect
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: client
+    origin_id: null
+    created_by: null
+    state: {}
+- id: client_c
+  title: Client C
+  formName: client
+  data:
+    budget: 90
+    status: prospect
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: client
+    origin_id: null
+    created_by: null
+    state: {}
+- id: executor
+  title: Executor
+  formName: executor
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: executor
+    origin_id: null
+    created_by: null
+    state: {}
+- id: company
+  title: Company
+  formName: company
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: company
+    origin_id: null
+    created_by: null
+    state: {}
+- id: compute
+  title: Compute provider
+  formName: provider
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: provider
+    origin_id: null
+    created_by: null
+    state: {}
+edges:
+- source: company
+  target: product
+  sourceTitle: Company
+  targetTitle: Product
+  sim:
+    id: link-0
+    edgeType: hierarchy
+    mediator: null
+- source: company
+  target: executor
+  sourceTitle: Company
+  targetTitle: Executor
+  sim:
+    id: link-1
+    edgeType: hierarchy
+    mediator: null
+- source: product
+  target: client_a
+  sourceTitle: Product
+  targetTitle: Client A
+  sim:
+    id: link-2
+    edgeType: offer
+    mediator: null
+- source: product
+  target: client_b
+  sourceTitle: Product
+  targetTitle: Client B
+  sim:
+    id: link-3
+    edgeType: offer
+    mediator: null
+- source: product
+  target: client_c
+  sourceTitle: Product
+  targetTitle: Client C
+  sim:
+    id: link-4
+    edgeType: offer
+    mediator: null
+sim:
+  format: sim-morrow/1
+  source:
+    kind: synthetic
+    name: SAMPLE-01
+  valueTypes: {}
+  accounts:
+  - actor_id: client_a
+    name: cash
+    value_type: UAH
+    value: '120.00'
+    origin_id: null
+  - actor_id: client_b
+    name: cash
+    value_type: UAH
+    value: '90.00'
+    origin_id: null
+  - actor_id: client_c
+    name: cash
+    value_type: UAH
+    value: '90.00'
+    origin_id: null
+  - actor_id: company
+    name: cash
+    value_type: UAH
+    value: '0.00'
+    origin_id: null
+  - actor_id: executor
+    name: wages
+    value_type: UAH
+    value: '0.00'
+    origin_id: null
+  - actor_id: compute
+    name: cash
+    value_type: UAH
+    value: '0.00'
+    origin_id: null
+  - actor_id: executor
+    name: slots
+    value_type: slots
+    value: '1.00'
+    origin_id: null

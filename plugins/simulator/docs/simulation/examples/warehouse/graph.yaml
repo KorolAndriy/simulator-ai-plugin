@@ -1,0 +1,121 @@
+layerId: ''
+actors:
+- id: supplier
+  title: Supplier
+  formName: supplier
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: supplier
+    origin_id: null
+    created_by: null
+    state: {}
+- id: warehouse
+  title: Warehouse
+  formName: warehouse
+  data:
+    reorder_at: 10
+    batch: 30
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: warehouse
+    origin_id: null
+    created_by: null
+    state: {}
+- id: shop
+  title: Shop
+  formName: shop
+  data:
+    reorder_at: 5
+    batch: 10
+    ordered: false
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: shop
+    origin_id: null
+    created_by: null
+    state: {}
+- id: customers
+  title: Customers
+  formName: market
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: market
+    origin_id: null
+    created_by: null
+    state: {}
+- id: loader
+  title: Loader
+  formName: worker
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: worker
+    origin_id: null
+    created_by: null
+    state: {}
+edges:
+- source: supplier
+  target: warehouse
+  sourceTitle: Supplier
+  targetTitle: Warehouse
+  sim:
+    id: link-0
+    edgeType: supplies
+    mediator: null
+- source: warehouse
+  target: shop
+  sourceTitle: Warehouse
+  targetTitle: Shop
+  sim:
+    id: link-1
+    edgeType: supplies
+    mediator: null
+- source: shop
+  target: customers
+  sourceTitle: Shop
+  targetTitle: Customers
+  sim:
+    id: link-2
+    edgeType: sells_to
+    mediator: null
+sim:
+  format: sim-morrow/1
+  source:
+    kind: synthetic
+    name: warehouse
+  valueTypes: {}
+  accounts:
+  - actor_id: supplier
+    name: stock
+    value_type: items
+    value: '500.00'
+    origin_id: null
+  - actor_id: warehouse
+    name: stock
+    value_type: items
+    value: '20.00'
+    origin_id: null
+  - actor_id: shop
+    name: stock
+    value_type: items
+    value: '8.00'
+    origin_id: null
+  - actor_id: customers
+    name: stock
+    value_type: items
+    value: '0.00'
+    origin_id: null
+  - actor_id: loader
+    name: worked
+    value_type: hours
+    value: '0.00'
+    origin_id: null

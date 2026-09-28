@@ -1,0 +1,3 @@
+- {name: base, params: {arrival_every: 20m}}
+- {name: busy, params: {arrival_every: 5m, officers: 1}}
+- {name: exceptions, params: {arrival_every: 15m, p_exception: 0.3}}

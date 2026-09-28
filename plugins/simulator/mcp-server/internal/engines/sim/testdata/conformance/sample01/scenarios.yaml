@@ -1,0 +1,8 @@
+- {name: base,        params: {price: 100, mode: human}}
+- {name: price80,     params: {price: 80,  mode: human}}
+- {name: ai,          params: {price: 100, mode: ai}}
+- {name: price80_ai,  params: {price: 80,  mode: ai}}
+- {name: b_u025,      params: {price: 80,  mode: human, b_random: true, u_b: 0.25}}
+- {name: b_u075,      params: {price: 80,  mode: human, b_random: true, u_b: 0.75}}
+- {name: b_random_80, runs: 50, params: {price: 80, mode: human, b_random: true}}
+- {name: b_random_80_ai, runs: 50, params: {price: 80, mode: ai, b_random: true}}

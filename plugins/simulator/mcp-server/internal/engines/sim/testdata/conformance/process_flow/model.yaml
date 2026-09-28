@@ -1,0 +1,96 @@
+# Applications flowing through a process graph: steps are actors, transitions are links,
+# an application walks from step to step. Manual steps need a free officer (a helper actor).
+# Synthetic conformance case; the same model runs on any process layer.
+value_types:
+  slots:   {kind: integer, conserved: true, min: 0}
+  minutes: {kind: decimal, scale: 1}
+  count:   {kind: integer}
+
+refs:
+  entry:    {title: Start}
+  officers: {title: Loan officers}
+
+actors:                                   # not in the graph: the people who do manual steps
+  - title: Loan officers
+    type: team
+    accounts: [{name: slots, value_type: slots, value: "=params.officers"}]
+
+params:
+  officers: 3              # people doing manual steps
+  arrival_every: 6m        # a new application
+  human_minutes: 12        # a manual step (personal info, conditions, review ...)
+  auto_minutes: 1          # automatic step: search, calculation, generated id
+  print_minutes: 3
+  p_exception: 0.05        # chance to take a boundary (exception) path when a step has one
+  max_steps: 60            # an application that loops longer is counted as stuck
+
+horizon: 4h
+
+initial_events:
+  - {event: arrive, target: entry, at: 0, every: "=params.arrival_every", priority: 30}
+
+behaviors:
+  process step:
+    arrive:
+      - create:
+          as: app
+          type: application
+          title: "='Application ' + str(now)"
+          data: {at: "=self.id", started: "=now", steps: 0, status: in_process, rejected: false}
+      - schedule: {event: enter, target: app, after: 0, priority: 30}
+
+  application:
+    enter:
+      - set: {steps: "=self.steps + 1", step_title: "=actor(self.at).title"}
+      - if: "'end' in self.step_title.lower() or len(actor(self.at).children()) == 0"
+        then:
+          - set: {status: "='rejected' if self.rejected else 'done'"}
+          - add: {actor: self, account: cycle, value_type: minutes, amount: "(now - self.started) / 60"}
+        else:
+          - if: "self.steps > params.max_steps"
+            then:
+              - set: {status: stuck}
+            else:
+              - if: "'?' in self.step_title or 'gateway' in self.step_title.lower() or 'boundary' in self.step_title.lower()"
+                then:
+                  - schedule: {event: advance, after: 0, priority: 30}
+                else:
+                  - if: "'auto' in self.step_title.lower() or 'search' in self.step_title.lower() or 'generated' in self.step_title.lower() or 'calculation' in self.step_title.lower() or 'initial' in self.step_title.lower()"
+                    then:
+                      - schedule: {event: advance, after: "params.auto_minutes * 60", priority: 30}
+                    else:
+                      - if: "'print' in self.step_title.lower()"
+                        then:
+                          - schedule: {event: advance, after: "params.print_minutes * 60", priority: 30}
+                        else:
+                          - enqueue: {resource: refs.officers, account: slots, target: self, event: work, priority: 40}
+    work:
+      - add: {actor: self, account: manual_steps, value_type: count, amount: 1}
+      - schedule: {event: work_done, after: "params.human_minutes * 60", priority: 10}
+    work_done:
+      - release: {target: self}
+      - schedule: {event: advance, after: 0, priority: 30}
+    advance:
+      - set:
+          next: >-
+            =(pick(where(actor(self.at).children(), title_has='boundary'))
+              if where(actor(self.at).children(), title_has='boundary') and chance(params.p_exception)
+              else pick(where(where(actor(self.at).children(), title_not='boundary'), leaf=False)
+                        + where(actor(self.at).children(), title_has='end')
+                        or actor(self.at).children())).id
+      - set: {at: "=self.next", rejected: "=self.rejected or 'reject' in actor(self.next).title.lower()"}
+      - schedule: {event: enter, after: 0, priority: 30}
+
+metrics:
+  arrived: "count(type='application')"
+  finished: "count(type='application', status='done')"
+  rejected: "count(type='application', status='rejected')"
+  in_process: "count(type='application', status='in_process')"
+  stuck: "count(type='application', status='stuck')"
+  avg_cycle_min: "round(total('cycle', type='application') / max(count(type='application', status='done') + count(type='application', status='rejected'), 1), 1)"
+  manual_steps_per_app: "round(total('manual_steps', type='application') / max(count(type='application'), 1), 1)"
+  waiting_for_officer: "len(refs.officers.get('_queue', []))"
+
+goals:
+  thirty_done_per_day: "finished >= 30"
+  queue_under_40: "waiting_for_officer < 40"
