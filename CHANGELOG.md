@@ -11,6 +11,9 @@
 - createForm / getForms / searchForms descriptions and the simulator-forms skill now say that
   private/draft forms (`isTemplate=false`) are not listed by getForms/searchForms; pushGraphFile's
   description says that a UUID id places the existing actor instead of copying it.
+- Codex MCP startup no longer depends on `CLAUDE_PLUGIN_ROOT`: the launcher keeps the user's
+  workspace in `SIMULATOR_WORK_DIR` and resolves the installed plugin root separately, so Codex
+  completes the MCP initialize handshake after a marketplace install.
 
 ### Changed
 - simulator-app-generator: design quality is now an explicit deliverable — a gated design brief
