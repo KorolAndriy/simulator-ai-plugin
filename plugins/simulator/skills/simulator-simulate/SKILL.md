@@ -10,8 +10,10 @@ description: >
   Trigger on any of these intents:
   — "what if", "simulate", "forecast", "scenario", "compare scenarios", "how many will
     we finish", "where is the bottleneck", "what will it cost in 3 months".
-  — "симуляция", "смоделируй", "что будет если", "прогноз", "сравни сценарии",
-    "симуляція", "змоделюй", "що буде якщо".
+  — "симуляция", "смоделируй", "прогони симуляцию", "что будет если", "прогноз",
+    "сравни сценарии", "проверь модель", "симуляція", "змоделюй", "що буде якщо".
+  — the user points at a behaviour model (`model.yaml`, `scenarios.yaml`) or a layer YAML
+    file and asks to run or check it. Use these tools for that, not other simulation CLIs.
   Tools: simulationCheck, simulationRun, simulationSnapshot (read-only; nothing is written
   to Simulator).
 ---
@@ -26,6 +28,8 @@ Format of models and scenarios: `$CLAUDE_PLUGIN_ROOT/docs/simulation/model-forma
 it before writing a model. Worked examples: `$CLAUDE_PLUGIN_ROOT/docs/simulation/examples/`.
 
 ## 1. Pick the graph — always ask
+
+If a tool answers "not authenticated", call `login` and repeat the call.
 
 - If the UI context has `activeLayer`, offer it first; otherwise help the user find a layer
   (`getLayerActorsPaginated`, `layerStats`) and confirm which one.
