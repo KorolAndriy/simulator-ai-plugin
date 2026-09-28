@@ -26,6 +26,7 @@ files and the [entity docs](../plugins/simulator/docs/entities/README.md).
 │   ├── simulator-actors         │   calls MCP tools over stdio         │
 │   ├── simulator-finance        │                                      │
 │   ├── simulator-charts          │                                      │
+│   ├── simulator-simulate        │                                      │
 │   ├── simulator-reactions       │                                      │
 │   ├── simulator-attachments     │                                      │
 │   └── simulator-access        ──┘                                      │
@@ -294,6 +295,9 @@ ported from the original implementation:
 | `listTrash`              | `smart_form_file_history.go`  | List soft-deleted objects in an env                            |
 | `restoreFromTrash`       | `smart_form_file_history.go`  | Restore a soft-deleted object from trash                       |
 | `createChart`            | `create_chart.go`             | Create a dashboard chart actor (dynamic filter or explicit accounts) |
+| `simulationCheck`        | `sim/check.go`                | Static check of a behaviour model against a layer (errors/warnings) |
+| `simulationRun`          | `sim/engine.go` + `sim/montecarlo.go` | Discrete-event simulation of a layer per scenario; many-run medians, ranges, goals. Read-only |
+| `simulationSnapshot`     | `sim/snapshot.go`             | Layer + account values (optionally turnover of a period) to `<layerId>.sim.yaml` |
 
 Engines share a small runtime config (`engines.Configure`: base URL + TLS) and read the
 auth header / `WORKSPACE_ID` per call. The graph sync (`sync_graph.go` + `push_graph.go`,

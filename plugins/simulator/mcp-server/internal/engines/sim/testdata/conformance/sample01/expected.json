@@ -1,0 +1,648 @@
+{
+ "scenarios": {
+  "base": {
+   "status": "completed",
+   "steps": 6,
+   "pending_events": 0,
+   "metrics": {
+    "completed": "1",
+    "leaves": "0",
+    "margin": "80"
+   },
+   "events": [
+    [
+     0,
+     30,
+     "offer",
+     "client_a"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_b"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_c"
+    ],
+    [
+     0,
+     40,
+     "work_start",
+     "sim-1"
+    ],
+    [
+     600,
+     10,
+     "complete",
+     "sim-1"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-1"
+    ]
+   ],
+   "error": null
+  },
+  "price80": {
+   "status": "completed",
+   "steps": 10,
+   "pending_events": 0,
+   "metrics": {
+    "completed": "2",
+    "leaves": "1",
+    "margin": "120"
+   },
+   "events": [
+    [
+     0,
+     30,
+     "offer",
+     "client_a"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_b"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_c"
+    ],
+    [
+     0,
+     40,
+     "work_start",
+     "sim-1"
+    ],
+    [
+     600,
+     10,
+     "complete",
+     "sim-1"
+    ],
+    [
+     600,
+     40,
+     "work_start",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-1"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-3"
+    ],
+    [
+     1200,
+     10,
+     "complete",
+     "sim-2"
+    ]
+   ],
+   "error": null
+  },
+  "ai": {
+   "status": "completed",
+   "steps": 6,
+   "pending_events": 0,
+   "metrics": {
+    "completed": "1",
+    "leaves": "0",
+    "margin": "75"
+   },
+   "events": [
+    [
+     0,
+     30,
+     "offer",
+     "client_a"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_b"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_c"
+    ],
+    [
+     0,
+     40,
+     "work_start",
+     "sim-1"
+    ],
+    [
+     300,
+     10,
+     "complete",
+     "sim-1"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-1"
+    ]
+   ],
+   "error": null
+  },
+  "price80_ai": {
+   "status": "completed",
+   "steps": 12,
+   "pending_events": 0,
+   "metrics": {
+    "completed": "3",
+    "leaves": "0",
+    "margin": "165"
+   },
+   "events": [
+    [
+     0,
+     30,
+     "offer",
+     "client_a"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_b"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_c"
+    ],
+    [
+     0,
+     40,
+     "work_start",
+     "sim-1"
+    ],
+    [
+     300,
+     10,
+     "complete",
+     "sim-1"
+    ],
+    [
+     300,
+     40,
+     "work_start",
+     "sim-2"
+    ],
+    [
+     600,
+     10,
+     "complete",
+     "sim-2"
+    ],
+    [
+     600,
+     40,
+     "work_start",
+     "sim-3"
+    ],
+    [
+     900,
+     10,
+     "complete",
+     "sim-3"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-1"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-3"
+    ]
+   ],
+   "error": null
+  },
+  "b_u025": {
+   "status": "completed",
+   "steps": 10,
+   "pending_events": 0,
+   "metrics": {
+    "completed": "2",
+    "leaves": "1",
+    "margin": "120"
+   },
+   "events": [
+    [
+     0,
+     30,
+     "offer",
+     "client_a"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_b"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_c"
+    ],
+    [
+     0,
+     40,
+     "work_start",
+     "sim-1"
+    ],
+    [
+     600,
+     10,
+     "complete",
+     "sim-1"
+    ],
+    [
+     600,
+     40,
+     "work_start",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-1"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-3"
+    ],
+    [
+     1200,
+     10,
+     "complete",
+     "sim-2"
+    ]
+   ],
+   "error": null
+  },
+  "b_u075": {
+   "status": "completed",
+   "steps": 9,
+   "pending_events": 0,
+   "metrics": {
+    "completed": "2",
+    "leaves": "0",
+    "margin": "120"
+   },
+   "events": [
+    [
+     0,
+     30,
+     "offer",
+     "client_a"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_b"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_c"
+    ],
+    [
+     0,
+     40,
+     "work_start",
+     "sim-1"
+    ],
+    [
+     600,
+     10,
+     "complete",
+     "sim-1"
+    ],
+    [
+     600,
+     40,
+     "work_start",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-1"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-2"
+    ],
+    [
+     1200,
+     10,
+     "complete",
+     "sim-2"
+    ]
+   ],
+   "error": null
+  },
+  "b_random_80": {
+   "status": "completed",
+   "steps": 10,
+   "pending_events": 0,
+   "metrics": {
+    "completed": "2",
+    "leaves": "1",
+    "margin": "120"
+   },
+   "events": [
+    [
+     0,
+     30,
+     "offer",
+     "client_a"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_b"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_c"
+    ],
+    [
+     0,
+     40,
+     "work_start",
+     "sim-1"
+    ],
+    [
+     600,
+     10,
+     "complete",
+     "sim-1"
+    ],
+    [
+     600,
+     40,
+     "work_start",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-1"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-3"
+    ],
+    [
+     1200,
+     10,
+     "complete",
+     "sim-2"
+    ]
+   ],
+   "error": null
+  },
+  "b_random_80_ai": {
+   "status": "completed",
+   "steps": 12,
+   "pending_events": 0,
+   "metrics": {
+    "completed": "3",
+    "leaves": "0",
+    "margin": "165"
+   },
+   "events": [
+    [
+     0,
+     30,
+     "offer",
+     "client_a"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_b"
+    ],
+    [
+     0,
+     30,
+     "offer",
+     "client_c"
+    ],
+    [
+     0,
+     40,
+     "work_start",
+     "sim-1"
+    ],
+    [
+     300,
+     10,
+     "complete",
+     "sim-1"
+    ],
+    [
+     300,
+     40,
+     "work_start",
+     "sim-2"
+    ],
+    [
+     600,
+     10,
+     "complete",
+     "sim-2"
+    ],
+    [
+     600,
+     40,
+     "work_start",
+     "sim-3"
+    ],
+    [
+     900,
+     10,
+     "complete",
+     "sim-3"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-1"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-2"
+    ],
+    [
+     900,
+     20,
+     "wait_timeout",
+     "sim-3"
+    ]
+   ],
+   "error": null
+  }
+ },
+ "runs": {
+  "b_random_80": {
+   "runs": 50,
+   "completed": 50,
+   "failed": 0,
+   "goals": {
+    "margin_over_100": [
+     50,
+     50
+    ],
+    "no_leaves": [
+     23,
+     50
+    ]
+   },
+   "metrics": {
+    "completed": {
+     "n": "50",
+     "mean": "2",
+     "p10": "2",
+     "p50": "2",
+     "p90": "2",
+     "min": "2",
+     "max": "2"
+    },
+    "leaves": {
+     "n": "50",
+     "mean": "0.54",
+     "p10": "0",
+     "p50": "1",
+     "p90": "1",
+     "min": "0",
+     "max": "1"
+    },
+    "margin": {
+     "n": "50",
+     "mean": "120",
+     "p10": "120",
+     "p50": "120",
+     "p90": "120",
+     "min": "120",
+     "max": "120"
+    }
+   }
+  },
+  "b_random_80_ai": {
+   "runs": 50,
+   "completed": 50,
+   "failed": 0,
+   "goals": {
+    "margin_over_100": [
+     50,
+     50
+    ],
+    "no_leaves": [
+     50,
+     50
+    ]
+   },
+   "metrics": {
+    "completed": {
+     "n": "50",
+     "mean": "2.54",
+     "p10": "2",
+     "p50": "3",
+     "p90": "3",
+     "min": "2",
+     "max": "3"
+    },
+    "leaves": {
+     "n": "50",
+     "mean": "0",
+     "p10": "0",
+     "p50": "0",
+     "p90": "0",
+     "min": "0",
+     "max": "0"
+    },
+    "margin": {
+     "n": "50",
+     "mean": "139.7",
+     "p10": "110",
+     "p50": "165",
+     "p90": "165",
+     "min": "110",
+     "max": "165"
+    }
+   }
+  }
+ }
+}

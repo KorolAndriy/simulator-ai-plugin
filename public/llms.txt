@@ -18,6 +18,7 @@
 - [simulator-init](https://raw.githubusercontent.com/corezoid/simulator-ai-plugin/main/plugins/simulator/skills/simulator-init/SKILL.md): Simulator.Company environment setup specialist
 - [simulator-meetings](https://raw.githubusercontent.com/corezoid/simulator-ai-plugin/main/plugins/simulator/skills/simulator-meetings/SKILL.md): Simulator.Company meeting specialist — scheduling and configuring meetings / video / SIP rooms
 - [simulator-reactions](https://raw.githubusercontent.com/corezoid/simulator-ai-plugin/main/plugins/simulator/skills/simulator-reactions/SKILL.md): Simulator.Company reactions specialist — comments, events, approvals, ratings and other feedback attached under an actor
+- [simulator-simulate](https://raw.githubusercontent.com/corezoid/simulator-ai-plugin/main/plugins/simulator/skills/simulator-simulate/SKILL.md): Simulator.Company behaviour simulation specialist ("what if" on a graph)
 - [simulator-skills](https://raw.githubusercontent.com/corezoid/simulator-ai-plugin/main/plugins/simulator/skills/simulator-skills/SKILL.md): Simulator.Company skill registry specialist — the data-driven analogue of these built-in skills
 - [simulator-smart-forms](https://raw.githubusercontent.com/corezoid/simulator-ai-plugin/main/plugins/simulator/skills/simulator-smart-forms/SKILL.md): Simulator.Company Smart Form (CDU / Script / Application) specialist
 - [simulator-smart-forms-logic](https://raw.githubusercontent.com/corezoid/simulator-ai-plugin/main/plugins/simulator/skills/simulator-smart-forms-logic/SKILL.md): Author and evolve the Corezoid backend that powers a Simulator.Company Smart Form
@@ -33,6 +34,7 @@ The plugin bundles a Go MCP server that wraps the Simulator REST API:
 - **set-workspace**: Save workspace ID to .env for subsequent API calls
 - **pullGraphFile**: Export a layer to a local YAML file for editing
 - **pushGraphFile**: Sync a local YAML graph file back to a Simulator layer
+- **simulationRun**: Simulate a layer: behaviour rules in model time, compare scenarios (read-only)
 - **createActor**: Create a single actor (node) in a layer
 - **createActors**: Bulk-create up to 50 actors in a single call
 - **updateActor**: Update actor properties (title, description, status)

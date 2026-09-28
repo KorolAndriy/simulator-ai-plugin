@@ -1,0 +1,189 @@
+layerId: ''
+actors:
+- id: step-0
+  title: Start
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+- id: step-1
+  title: Personal Info
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+- id: step-2
+  title: continue?
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+- id: step-3
+  title: Loan Conditions
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+- id: step-4
+  title: End process
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+- id: step-5
+  title: Boundary Event
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+- id: step-6
+  title: AutoReject
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+- id: step-7
+  title: Print documents
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+- id: step-8
+  title: Search customer
+  formName: process step
+  position:
+    x: 0
+    y: 0
+  sim:
+    type: process step
+    origin_id: null
+    created_by: null
+    state: {}
+edges:
+- source: step-0
+  target: step-8
+  sourceTitle: Start
+  targetTitle: Search customer
+  sim:
+    id: edge-0
+    edgeType: hierarchy
+    mediator: null
+- source: step-8
+  target: step-1
+  sourceTitle: Search customer
+  targetTitle: Personal Info
+  sim:
+    id: edge-1
+    edgeType: hierarchy
+    mediator: null
+- source: step-1
+  target: step-2
+  sourceTitle: Personal Info
+  targetTitle: continue?
+  sim:
+    id: edge-2
+    edgeType: hierarchy
+    mediator: null
+- source: step-1
+  target: step-5
+  sourceTitle: Personal Info
+  targetTitle: Boundary Event
+  sim:
+    id: edge-3
+    edgeType: hierarchy
+    mediator: null
+- source: step-2
+  target: step-3
+  sourceTitle: continue?
+  targetTitle: Loan Conditions
+  sim:
+    id: edge-4
+    edgeType: hierarchy
+    mediator: null
+- source: step-2
+  target: step-1
+  sourceTitle: continue?
+  targetTitle: Personal Info
+  sim:
+    id: edge-5
+    edgeType: hierarchy
+    mediator: null
+- source: step-3
+  target: step-7
+  sourceTitle: Loan Conditions
+  targetTitle: Print documents
+  sim:
+    id: edge-6
+    edgeType: hierarchy
+    mediator: null
+- source: step-7
+  target: step-4
+  sourceTitle: Print documents
+  targetTitle: End process
+  sim:
+    id: edge-7
+    edgeType: hierarchy
+    mediator: null
+- source: step-5
+  target: step-6
+  sourceTitle: Boundary Event
+  targetTitle: AutoReject
+  sim:
+    id: edge-8
+    edgeType: hierarchy
+    mediator: null
+- source: step-6
+  target: step-4
+  sourceTitle: AutoReject
+  targetTitle: End process
+  sim:
+    id: edge-9
+    edgeType: hierarchy
+    mediator: null
+sim:
+  format: sim-morrow/1
+  source:
+    kind: synthetic
+    name: process_flow
+  valueTypes: {}
+  accounts: []

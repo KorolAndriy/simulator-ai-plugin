@@ -40,6 +40,7 @@ var mcpTools = [][2]string{
 	{"set-workspace", "Save workspace ID to .env for subsequent API calls"},
 	{"pullGraphFile", "Export a layer to a local YAML file for editing"},
 	{"pushGraphFile", "Sync a local YAML graph file back to a Simulator layer"},
+	{"simulationRun", "Simulate a layer: behaviour rules in model time, compare scenarios (read-only)"},
 	{"createActor", "Create a single actor (node) in a layer"},
 	{"createActors", "Bulk-create up to 50 actors in a single call"},
 	{"updateActor", "Update actor properties (title, description, status)"},

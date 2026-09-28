@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- Behaviour simulation engine (`internal/engines/sim`) with the `simulationCheck`, `simulationRun` and
+  `simulationSnapshot` tools and the `simulator-simulate` skill: YAML behaviour rules over any layer,
+  exact decimal accounts with conserved types, a discrete-event queue in model time, scenario comparison,
+  many-run medians/ranges and goal shares, and a static model check. Read-only: nothing is written to
+  Simulator. The model format is specified in `plugins/simulator/docs/simulation/model-format.md`; the
+  engine reproduces the reference engine's answers on the conformance cases (`TestConformance`).
+
 ### Fixed
 - pushGraphFile: edges were placed with a position `{x:0,y:0}`, which the server treats as a grid
   cell, so every push with more than one new edge failed with `Occupied cells: (A, 1)`. Edge
