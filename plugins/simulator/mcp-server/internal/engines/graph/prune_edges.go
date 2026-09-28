@@ -119,7 +119,8 @@ func handlePruneLongEdges(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 			positionOf[p.ID] = struct{ X, Y int }{X: int(p.Position.X), Y: int(p.Position.Y)}
 			titleOf[p.ID] = p.Title
 		}
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit
@@ -147,7 +148,8 @@ func handlePruneLongEdges(ctx context.Context, req mcp.CallToolRequest) (*mcp.Ca
 			return mcp.NewToolResultError(fmt.Sprintf("[Error] parse edges: %v", err)), nil
 		}
 		edges = append(edges, page.Data...)
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit

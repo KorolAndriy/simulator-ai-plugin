@@ -367,8 +367,12 @@ func TestFetchLayerActorsPagination(t *testing.T) {
 			_, _ = w.Write([]byte(sb.String()))
 			return
 		}
-		// Short page (1) ends pagination.
-		_, _ = w.Write([]byte(`{"data":[{"id":"last","laId":2,"title":"Last"}]}`))
+		if offset == "50" {
+			_, _ = w.Write([]byte(`{"data":[{"id":"last","laId":2,"title":"Last"}]}`))
+			return
+		}
+		// An empty page ends pagination (a short one may not: deleted elements are dropped after LIMIT).
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -378,7 +382,7 @@ func TestFetchLayerActorsPagination(t *testing.T) {
 		t.Fatalf("fetchLayerActors: %v", err)
 	}
 	if len(actors) != 51 {
-		t.Errorf("actors = %d, want 51 (50 + 1 across two pages)", len(actors))
+		t.Errorf("actors = %d, want 51 (50 + 1 across two pages, then an empty one)", len(actors))
 	}
 	if actors[len(actors)-1].Title != "Last" {
 		t.Errorf("last actor title = %q, want Last", actors[len(actors)-1].Title)
@@ -420,7 +424,7 @@ func TestPushGraphCreatesEdgesWithoutPosition(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		switch {
 		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/graph_layers/paginated/"):
-			if r.URL.Query().Get("type") == "edges" {
+			if r.URL.Query().Get("type") == "edges" || r.URL.Query().Get("offset") != "0" {
 				_, _ = w.Write([]byte(`{"data":[]}`))
 				return
 			}

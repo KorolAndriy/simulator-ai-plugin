@@ -102,7 +102,8 @@ func handleGetAllLayerPlacements(ctx context.Context, req mcp.CallToolRequest) (
 			row.Position.Y = int(p.Position.Y)
 			rows = append(rows, row)
 		}
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit
