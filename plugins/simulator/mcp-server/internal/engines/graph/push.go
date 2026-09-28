@@ -676,8 +676,12 @@ func (s *GraphSyncer) createGraphActor(ctx context.Context, a GraphActor) (strin
 		"color":       a.Color,
 		"picture":     a.Picture,
 	}
+	// The API requires a data object on create ("body must have required
+	// property 'data'"), so an actor without fields in the file sends {}.
 	if a.Data != nil {
 		body["data"] = a.Data
+	} else {
+		body["data"] = map[string]interface{}{}
 	}
 	omitEmptyFields(body)
 
@@ -986,8 +990,7 @@ func (s *GraphSyncer) pushGraph(ctx context.Context, graph GraphFile, layerID st
 					addItem.Action = "create"
 					addItem.Data.ID = serverUUID
 					addItem.Data.Type = "node"
-					addItem.Data.Position.X = a.Position.X
-					addItem.Data.Position.Y = a.Position.Y
+					addItem.Data.Position = &layerPosition{X: a.Position.X, Y: a.Position.Y}
 					nodeManageItems = append(nodeManageItems, addItem)
 					result.ActorsRecreated++
 				} else {
@@ -1012,8 +1015,7 @@ func (s *GraphSyncer) pushGraph(ctx context.Context, graph GraphFile, layerID st
 				item.Action = "create"
 				item.Data.ID = origID
 				item.Data.Type = "node"
-				item.Data.Position.X = a.Position.X
-				item.Data.Position.Y = a.Position.Y
+				item.Data.Position = &layerPosition{X: a.Position.X, Y: a.Position.Y}
 				nodeManageItems = append(nodeManageItems, item)
 				result.ActorsCreated++
 			}
@@ -1034,8 +1036,7 @@ func (s *GraphSyncer) pushGraph(ctx context.Context, graph GraphFile, layerID st
 			item.Action = "create"
 			item.Data.ID = serverUUID
 			item.Data.Type = "node"
-			item.Data.Position.X = a.Position.X
-			item.Data.Position.Y = a.Position.Y
+			item.Data.Position = &layerPosition{X: a.Position.X, Y: a.Position.Y}
 			nodeManageItems = append(nodeManageItems, item)
 			result.ActorsCreated++
 		}
