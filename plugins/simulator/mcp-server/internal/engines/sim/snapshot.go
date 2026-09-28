@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
+	"regexp"
 	"sort"
 	"time"
 
@@ -15,6 +16,9 @@ import (
 
 // systemForms are graph-of-graph placements, not domain actors.
 var systemForms = map[string]bool{"Layers": true, "Graphs": true}
+
+// noAccess matches the API errors for an actor whose accounts the caller cannot read.
+var noAccess = regexp.MustCompile(`HTTP (403|404)\b`)
 
 const pageLimit = 50 // /graph_layers/paginated rejects limit > 50
 
@@ -73,7 +77,9 @@ func papiGet(ctx context.Context, path string, q url.Values, out any) error {
 	return d.Decode(out)
 }
 
-func readPaged[T any](ctx context.Context, path string, q url.Values, limit int) ([]T, error) {
+// readPaged reads every page. With untilEmpty it stops only on an empty page: the layer
+// endpoints apply LIMIT before dropping deleted elements, so a short page is not the last.
+func readPaged[T any](ctx context.Context, path string, q url.Values, limit int, untilEmpty bool) ([]T, error) {
 	var all []T
 	for offset := 0; ; offset += limit {
 		qq := url.Values{}
@@ -87,7 +93,7 @@ func readPaged[T any](ctx context.Context, path string, q url.Values, limit int)
 			return nil, err
 		}
 		all = append(all, page...)
-		if len(page) < limit {
+		if len(page) == 0 || (!untilEmpty && len(page) < limit) {
 			return all, nil
 		}
 	}
@@ -106,11 +112,11 @@ func jsonNum(n json.Number) any {
 // Snapshot reads a layer with its actors, links and account values. With period > 0 the
 // values are the turnover of the last period (getAccounts from/to) instead of the balance.
 func Snapshot(ctx context.Context, layerID string, period time.Duration) (*Graph, error) {
-	nodes, err := readPaged[layerNode](ctx, "/graph_layers/paginated/"+ecore.Seg(layerID), url.Values{"type": {"nodes"}}, pageLimit)
+	nodes, err := readPaged[layerNode](ctx, "/graph_layers/paginated/"+ecore.Seg(layerID), url.Values{"type": {"nodes"}}, pageLimit, true)
 	if err != nil {
 		return nil, fmt.Errorf("read layer nodes: %w", err)
 	}
-	edges, err := readPaged[layerEdge](ctx, "/graph_layers/paginated/"+ecore.Seg(layerID), url.Values{"type": {"edges"}}, pageLimit)
+	edges, err := readPaged[layerEdge](ctx, "/graph_layers/paginated/"+ecore.Seg(layerID), url.Values{"type": {"edges"}}, pageLimit, true)
 	if err != nil {
 		return nil, fmt.Errorf("read layer edges: %w", err)
 	}
@@ -118,18 +124,31 @@ func Snapshot(ctx context.Context, layerID string, period time.Duration) (*Graph
 	if period > 0 {
 		g.Source.Set("period_seconds", ratInt(int64(period.Seconds())))
 	}
-	window := url.Values{}
+	window := url.Values{"highPrecision": {"true"}} // exact sums, not JS numbers
 	if period > 0 {
 		now := time.Now()
 		window.Set("from", fmt.Sprint(now.Add(-period).UnixMilli()))
 		window.Set("to", fmt.Sprint(now.UnixMilli()))
 	}
+	var skipped []string
 	for _, a := range append([]*Actor(nil), g.actors...) {
-		rows, err := readPaged[accountRow](ctx, "/accounts/"+ecore.Seg(a.ID), window, 100)
+		rows, err := readPaged[accountRow](ctx, "/accounts/"+ecore.Seg(a.ID), window, 100, false)
 		if err != nil {
+			// the layer lists actors the caller cannot view, but their accounts need view access
+			if noAccess.MatchString(err.Error()) {
+				skipped = append(skipped, a.Title)
+				continue
+			}
 			return nil, fmt.Errorf("read accounts of %s: %w", a.Title, err)
 		}
 		readAccounts(g, a, rows)
+	}
+	if len(skipped) > 0 {
+		list := make([]any, len(skipped))
+		for i, t := range skipped {
+			list[i] = t
+		}
+		g.Source.Set("accounts_not_readable", list)
 	}
 	return g, nil
 }

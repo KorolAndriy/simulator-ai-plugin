@@ -229,6 +229,15 @@ type Event struct {
 	Target   string
 	Payload  *OMap
 	Key      string
+	// a recurring initial event keeps only its next occurrence queued
+	chain *chain
+	n     int64
+}
+
+// chain is one recurring initial event on one target.
+type chain struct {
+	every, last int64 // period; index of the last occurrence within the horizon
+	keyPrefix   string
 }
 
 type scheduled struct {

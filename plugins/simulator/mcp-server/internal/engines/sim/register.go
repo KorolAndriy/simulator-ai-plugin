@@ -51,7 +51,9 @@ func Register(s *server.MCPServer) {
 		mcp.WithString("scenario", mcp.Description("Comma-separated scenario names to run (default: all).")),
 		mcp.WithNumber("runs", mcp.Description("Runs per scenario with different random seeds (default 1, max 1000).")),
 		mcp.WithString("goals", mcp.Description("Extra goals as YAML/JSON map name -> condition over metrics, e.g. {no_leaves: 'leaves == 0'}.")),
-		mcp.WithNumber("logEvents", mcp.Description("Include the first N processed events of each scenario (default 0).")),
+		mcp.WithNumber("logEvents", mcp.Description(fmt.Sprintf("Include the first N processed events of each scenario (default 0, max %d).", maxLogEvents))),
+		mcp.WithString("timeLimit", mcp.Description(fmt.Sprintf("Wall-clock budget for the whole call, e.g. 30s or 5m (default %s, max %s). "+
+			"When it runs out, a single run ends with status stopped_by_time and many runs report the runs made so far.", defaultTimeLimit, maxTimeLimit))),
 		mcp.WithIdempotentHintAnnotation(true),
 	)...), handleRun)
 
@@ -61,6 +63,7 @@ func Register(s *server.MCPServer) {
 			"value types). Use it to inspect what a simulation will see, or to rerun offline with graphPath."),
 		mcp.WithString("layerId", mcp.Description("Layer actor UUID."), mcp.Required()),
 		mcp.WithString("period", mcp.Description("Account values = turnover of this last period (e.g. 30d) instead of the balance.")),
+		mcp.WithBoolean("overwrite", mcp.Description("Replace an existing <layerId>.sim.yaml (default false: the call refuses, so hand edits are not lost).")),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 	), handleSnapshot)
@@ -90,6 +93,28 @@ func textOrFile(args map[string]any, textKey, pathKey string) ([]byte, error) {
 		return os.ReadFile(path)
 	}
 	return nil, nil
+}
+
+const (
+	maxLogEvents     = 10_000
+	defaultTimeLimit = 2 * time.Minute
+	maxTimeLimit     = 15 * time.Minute
+)
+
+func parseTimeLimit(args map[string]any) (time.Duration, error) {
+	p, _ := args["timeLimit"].(string)
+	if p == "" {
+		return defaultTimeLimit, nil
+	}
+	sec, err := parseDuration(p)
+	if err != nil {
+		return 0, err
+	}
+	d := time.Duration(sec) * time.Second
+	if d <= 0 {
+		return 0, fmt.Errorf("must be positive")
+	}
+	return min(d, maxTimeLimit), nil
 }
 
 func parsePeriod(args map[string]any) (time.Duration, error) {
@@ -238,13 +263,22 @@ func handleRun(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	}
 	logN := 0
 	if n, ok := args["logEvents"].(float64); ok && n > 0 {
-		logN = int(n)
+		logN = min(int(n), maxLogEvents)
 	}
+	limit, err := parseTimeLimit(args)
+	if err != nil {
+		return mcp.NewToolResultError("[Error] timeLimit: " + err.Error()), nil
+	}
+	runCtx, cancel := context.WithTimeoutCause(ctx, limit, fmt.Errorf("time limit %s reached", limit))
+	defer cancel()
 	out := map[string]any{"ok": true, "graph": in.graph.summary(), "source": toJSON(in.graph.Source)}
 	if runs > 1 {
 		var summaries []*Summary
 		for _, sc := range selected {
-			summaries = append(summaries, RunMany(in.graph, in.model, sc, runs, nil, goals))
+			summaries = append(summaries, RunMany(runCtx, in.graph, in.model, sc, runs, nil, goals))
+		}
+		if ctx.Err() != nil {
+			return mcp.NewToolResultError("[Error] cancelled"), nil
 		}
 		out["runs"] = runs
 		out["table"] = SummaryTable(summaries)
@@ -253,7 +287,10 @@ func handleRun(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResul
 	}
 	var results []*RunResult
 	for _, sc := range selected {
-		results = append(results, RunScenario(in.graph, in.model, sc, nil))
+		results = append(results, RunScenario(in.graph, in.model, sc, nil, RunOptions{Ctx: runCtx, LogLimit: logN}))
+	}
+	if ctx.Err() != nil {
+		return mcp.NewToolResultError("[Error] cancelled"), nil
 	}
 	out["table"] = CompareTable(results)
 	out["scenarios"] = resultsJSON(results, logN)
@@ -273,6 +310,12 @@ func handleSnapshot(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	if err != nil {
 		return mcp.NewToolResultError("[Error] period: " + err.Error()), nil
 	}
+	path := ecore.ResolvePath(layerID + ".sim.yaml")
+	if overwrite, _ := args["overwrite"].(bool); !overwrite {
+		if _, err := os.Stat(path); err == nil {
+			return mcp.NewToolResultError("[Error] " + path + " already exists (it may hold hand edits); pass overwrite: true to replace it"), nil
+		}
+	}
 	g, err := Snapshot(ctx, layerID, period)
 	if err != nil {
 		return mcp.NewToolResultError("[Error] " + err.Error()), nil
@@ -281,7 +324,6 @@ func handleSnapshot(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 	if err != nil {
 		return mcp.NewToolResultError("[Error] " + err.Error()), nil
 	}
-	path := ecore.ResolvePath(layerID + ".sim.yaml")
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		return mcp.NewToolResultError("[Error] write snapshot: " + err.Error()), nil
 	}
@@ -431,8 +473,12 @@ func summariesJSON(summaries []*Summary) []map[string]any {
 		for _, k := range keys {
 			goals[k] = map[string]int{"held": s.Goals[k][0], "evaluated": s.Goals[k][1]}
 		}
-		out = append(out, map[string]any{"scenario": s.Scenario, "runs": s.Runs, "completed": s.Completed,
-			"failed": s.Failed, "stopped": s.Stopped, "metrics": metrics, "goals": goals, "errors": s.Errors})
+		entry := map[string]any{"scenario": s.Scenario, "runs": s.Runs, "completed": s.Completed,
+			"failed": s.Failed, "stopped": s.Stopped, "metrics": metrics, "goals": goals, "errors": s.Errors}
+		if s.Note != "" {
+			entry["note"] = s.Note
+		}
+		out = append(out, entry)
 	}
 	return out
 }

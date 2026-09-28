@@ -89,15 +89,39 @@ func deepCopy(v any) any {
 
 // fromYAML converts a YAML node into engine values: mappings -> *OMap, sequences -> []any,
 // numbers -> *big.Rat (exact, from the literal text), booleans, null, strings.
+//
+// Aliases are expanded here, not by yaml.v3, so its alias-bomb guard does not apply: the
+// expansion is capped at the document's own size plus maxAliasNodes.
 func fromYAML(n *yaml.Node) (any, error) {
+	c := &yamlConv{budget: yamlSize(n) + maxAliasNodes}
+	return c.conv(n)
+}
+
+const maxAliasNodes = 10_000
+
+type yamlConv struct{ budget int }
+
+// yamlSize counts the nodes of a document without following aliases.
+func yamlSize(n *yaml.Node) int {
+	size := 1
+	for _, c := range n.Content {
+		size += yamlSize(c)
+	}
+	return size
+}
+
+func (c *yamlConv) conv(n *yaml.Node) (any, error) {
+	if c.budget--; c.budget < 0 {
+		return nil, fmt.Errorf("line %d: YAML aliases expand to too many nodes", n.Line)
+	}
 	switch n.Kind {
 	case yaml.DocumentNode:
 		if len(n.Content) == 0 {
 			return nil, nil
 		}
-		return fromYAML(n.Content[0])
+		return c.conv(n.Content[0])
 	case yaml.AliasNode:
-		return fromYAML(n.Alias)
+		return c.conv(n.Alias)
 	case yaml.MappingNode:
 		o := NewOMap()
 		for i := 0; i+1 < len(n.Content); i += 2 {
@@ -105,7 +129,7 @@ func fromYAML(n *yaml.Node) (any, error) {
 			if k.Tag == "!!merge" {
 				return nil, fmt.Errorf("line %d: YAML merge keys are not supported", k.Line)
 			}
-			val, err := fromYAML(v)
+			val, err := c.conv(v)
 			if err != nil {
 				return nil, err
 			}
@@ -114,8 +138,8 @@ func fromYAML(n *yaml.Node) (any, error) {
 		return o, nil
 	case yaml.SequenceNode:
 		out := make([]any, 0, len(n.Content))
-		for _, c := range n.Content {
-			val, err := fromYAML(c)
+		for _, item := range n.Content {
+			val, err := c.conv(item)
 			if err != nil {
 				return nil, err
 			}

@@ -79,12 +79,12 @@ func loadCase(t *testing.T, dir string) (*Graph, *Model, []Scenario, []*OMap, ex
 }
 
 func TestConformance(t *testing.T) {
-	dirs, _ := filepath.Glob("testdata/conformance/*")
-	if len(dirs) == 0 {
+	files, _ := filepath.Glob("testdata/conformance/*/expected.json")
+	if len(files) == 0 {
 		t.Fatal("no conformance cases")
 	}
-	for _, dir := range dirs {
-		dir := dir
+	for _, f := range files {
+		dir := filepath.Dir(f)
 		t.Run(filepath.Base(dir), func(t *testing.T) {
 			g, m, scs, raw, exp := loadCase(t, dir)
 			for i, sc := range scs {
@@ -92,7 +92,7 @@ func TestConformance(t *testing.T) {
 				if !ok {
 					t.Fatalf("no expected result for %s", sc.Name)
 				}
-				r := RunScenario(g, m, sc, nil)
+				r := RunScenario(g, m, sc, nil, AllLog)
 				if r.Status != want.Status || r.Steps != want.Steps || r.PendingEvents != want.PendingEvents {
 					t.Errorf("%s: status/steps/pending = %s/%d/%d, want %s/%d/%d (error %q)", sc.Name,
 						r.Status, r.Steps, r.PendingEvents, want.Status, want.Steps, want.PendingEvents, r.Error)
@@ -129,7 +129,7 @@ func TestConformance(t *testing.T) {
 				if !hasRuns || n == 0 {
 					continue
 				}
-				s := RunMany(g, m, sc, int(n), nil, NewOMap())
+				s := RunMany(nil, g, m, sc, int(n), nil, NewOMap())
 				if s.Runs != wantRuns.Runs || s.Completed != wantRuns.Completed || s.Failed != wantRuns.Failed {
 					t.Errorf("%s runs: %d/%d/%d, want %d/%d/%d", sc.Name, s.Runs, s.Completed, s.Failed,
 						wantRuns.Runs, wantRuns.Completed, wantRuns.Failed)

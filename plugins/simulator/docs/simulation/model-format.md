@@ -41,6 +41,7 @@ sim:
 Rules:
 - Actors keep their order from the file. Every "for each actor" in this spec uses this order.
 - A snapshot of a live layer lists actors and links sorted by id, so the result does not depend on the order the Simulator API returns them in. An actor or edge placed twice appears once.
+- A snapshot reads layer pages until an empty page (a page can be short because deleted elements are dropped from it) and account values with high precision. An actor whose accounts the caller may not read stays in the graph without accounts and is listed in `source.accounts_not_readable`.
 - A file without `sim:` sections (straight from `pullGraphFile`) is valid: types come from `formName` or `formId`, there are no accounts.
 - An edge whose source or target is not an actor in the file is dropped.
 
@@ -60,7 +61,7 @@ Rules:
 - Model time is integer seconds from 0. Durations are written as numbers (seconds) or `<n><unit>` with units `ms`, `s`, `m`, `min`, `h`, `d` (`15m` = 900).
 - `horizon` is inclusive: events at exactly the horizon are processed; later events stay in the queue and are reported as `pending_events`.
 - The queue is ordered by `(time, priority, seq)`. `seq` is a counter that increases by one every time an event is queued. Lower priority numbers run first.
-- Initial events are queued first, in model order; for `for_type`, targets are taken in graph order. With `every`, one event is queued per occurrence up to the horizon (`at`, `at + every`, …).
+- Initial events are queued first, in model order; for `for_type`, targets are taken in graph order. With `every`, the event occurs at `at`, `at + every`, … up to the horizon. Occurrences are numbered as if all of them were queued at the start, in (initial event, target, occurrence) order, so they run before any event a step schedules for the same time and priority. An engine queues only the next occurrence of each chain; `pending_events` still counts the occurrences not run.
 - Events scheduled by a step are queued after the step commits, in the order they were scheduled.
 - An event whose target type has no handler for its kind is logged as skipped and counts as a step.
 - The run stops with `failed` on the first step that fails, with `stopped_by_limit` after `max_steps` (default 1 000 000), and otherwise with `completed`.
@@ -182,3 +183,5 @@ Each directory in `testdata/conformance/` holds `graph.yaml`, `model.yaml`, `sce
 - Jev decisions (`jev:` blocks) are not available here: a `decide` uses its `rule`, or a uniform choice without one.
 - Publishing results to Simulator and the slow mode (a live copy updated step by step) are not available yet; `simulationRun` only reads.
 - A `graphPath` file straight from `pullGraphFile` names forms only by `formId`. When logged in, `simulationRun` and `simulationCheck` replace such types with the form titles from Simulator, so a model can say `type: Shops` for either input.
+- `simulationRun` has a wall-clock budget (`timeLimit`, default 2 minutes, at most 15): a single run that exceeds it ends with status `stopped_by_time`, and many runs report the runs made so far with a `note`. The event log in a result is capped at 10,000 entries per scenario.
+- `simulationSnapshot` does not replace an existing `<layerId>.sim.yaml` unless `overwrite: true` is passed, so hand edits are not lost.

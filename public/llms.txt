@@ -35,6 +35,8 @@ The plugin bundles a Go MCP server that wraps the Simulator REST API:
 - **pullGraphFile**: Export a layer to a local YAML file for editing
 - **pushGraphFile**: Sync a local YAML graph file back to a Simulator layer
 - **simulationRun**: Simulate a layer: behaviour rules in model time, compare scenarios (read-only)
+- **simulationCheck**: Check a behaviour model against a layer before running it (read-only)
+- **simulationSnapshot**: Save a layer with account values to <layerId>.sim.yaml for offline simulation
 - **createActor**: Create a single actor (node) in a layer
 - **createActors**: Bulk-create up to 50 actors in a single call
 - **updateActor**: Update actor properties (title, description, status)

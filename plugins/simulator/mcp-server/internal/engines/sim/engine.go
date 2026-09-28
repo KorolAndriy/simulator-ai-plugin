@@ -2,6 +2,7 @@ package sim
 
 import (
 	"container/heap"
+	"context"
 	"fmt"
 	"math/big"
 	"strings"
@@ -117,7 +118,29 @@ type Engine struct {
 	refs     *OMap
 	queue    eventQueue
 	seq      int64
+	unqueued int64 // future occurrences of recurring events, not queued yet
 	log      []LogEntry
+	opts     RunOptions
+}
+
+// RunOptions bound one run inside a long-lived server.
+type RunOptions struct {
+	// Ctx stops the run when it is cancelled or its deadline passes (checked every
+	// ctxCheckEvery steps); nil runs to the end.
+	Ctx context.Context
+	// LogLimit is how many event log entries to keep: < 0 all, 0 none.
+	LogLimit int
+}
+
+const ctxCheckEvery = 1024
+
+// AllLog keeps the whole event log and never stops early (tests, conformance).
+var AllLog = RunOptions{LogLimit: -1}
+
+func (e *Engine) record(entry LogEntry) {
+	if e.opts.LogLimit < 0 || len(e.log) < e.opts.LogLimit {
+		e.log = append(e.log, entry)
+	}
 }
 
 func NewEngine(g *Graph, model *Model, sc Scenario, decider Decider) (*Engine, error) {
@@ -214,7 +237,7 @@ func addModelActors(g *Graph, model *Model, resolve func(any) (any, error)) erro
 
 func (e *Engine) push(kind, target string, t, prio int64, payload *OMap, key string) {
 	e.seq++
-	heap.Push(&e.queue, &Event{t, prio, e.seq, kind, target, payload, key})
+	heap.Push(&e.queue, &Event{Time: t, Priority: prio, Seq: e.seq, Kind: kind, Target: target, Payload: payload, Key: key})
 }
 
 func (e *Engine) actorType(id string) string {
@@ -323,26 +346,46 @@ func (e *Engine) initialEvents() error {
 			}
 		}
 		payload := getMap(spec, "payload")
+		if at > e.horizon {
+			continue
+		}
+		count := int64(1)
+		if every > 0 {
+			count = (e.horizon-at)/every + 1
+		}
+		// Every occurrence gets the seq it would have if all were queued up front, in
+		// (event, target, occurrence) order; only the next one of a chain sits in the
+		// queue, so memory does not grow with horizon / every (model format §3).
 		for _, tid := range targets {
 			a := e.s.g.actorIdx[tid]
 			logical := a.OriginID
 			if logical == "" {
 				logical = a.ID
 			}
-			for t, n := at, 0; t <= e.horizon; n++ {
-				p := NewOMap()
-				if payload != nil {
-					p = deepCopy(payload).(*OMap)
-				}
-				e.push(getString(spec, "event"), tid, t, intField(spec, "priority", 30), p, fmt.Sprintf("init%d:%s#%d", i, logical, n))
-				if every <= 0 {
-					break
-				}
-				t += every
+			p := NewOMap()
+			if payload != nil {
+				p = deepCopy(payload).(*OMap)
 			}
+			c := &chain{every: every, last: count - 1, keyPrefix: fmt.Sprintf("init%d:%s#", i, logical)}
+			heap.Push(&e.queue, &Event{Time: at, Priority: intField(spec, "priority", 30), Seq: e.seq + 1,
+				Kind: getString(spec, "event"), Target: tid, Payload: p, Key: c.keyPrefix + "0", chain: c})
+			e.seq += count
+			e.unqueued += count - 1
 		}
 	}
 	return nil
+}
+
+// nextOccurrence queues the next occurrence of a recurring initial event.
+func (e *Engine) nextOccurrence(ev *Event) {
+	c := ev.chain
+	if c == nil || ev.n >= c.last {
+		return
+	}
+	n := ev.n + 1
+	heap.Push(&e.queue, &Event{Time: ev.Time + c.every, Priority: ev.Priority, Seq: ev.Seq + 1, Kind: ev.Kind,
+		Target: ev.Target, Payload: deepCopy(ev.Payload).(*OMap), Key: fmt.Sprintf("%s%d", c.keyPrefix, n), chain: c, n: n})
+	e.unqueued--
 }
 
 func (e *Engine) Run() *RunResult {
@@ -366,17 +409,24 @@ func (e *Engine) Run() *RunResult {
 			status, errMsg = "stopped_by_limit", fmt.Sprintf("max_steps %d reached", e.MaxSteps)
 			break
 		}
+		if e.opts.Ctx != nil && steps%ctxCheckEvery == 0 {
+			if err := e.opts.Ctx.Err(); err != nil {
+				status, errMsg = "stopped_by_time", fmt.Sprintf("stopped at step %d: %v", steps, context.Cause(e.opts.Ctx))
+				break
+			}
+		}
 		heap.Pop(&e.queue)
+		e.nextOccurrence(ev)
 		now = ev.Time
 		steps++
 		if err := e.step(ev); err != nil {
 			status, errMsg = "failed", fmt.Sprintf("t=%d %s -> %s: %s", ev.Time, ev.Kind, ev.Target, err)
-			e.log = append(e.log, LogEntry{Time: ev.Time, Priority: ev.Priority, Kind: ev.Kind, Target: ev.Target, Key: ev.Key, Error: err.Error()})
+			e.record(LogEntry{Time: ev.Time, Priority: ev.Priority, Kind: ev.Kind, Target: ev.Target, Key: ev.Key, Error: err.Error()})
 			break
 		}
 	}
 	res := &RunResult{Scenario: e.scenario.Name, Status: status, ModelTime: now, Steps: steps, Log: e.log,
-		Error: errMsg, PendingEvents: e.queue.Len(), Graph: e.s.g, Metrics: map[string]any{}}
+		Error: errMsg, PendingEvents: e.queue.Len() + int(e.unqueued), Graph: e.s.g, Metrics: map[string]any{}}
 	if status != "failed" {
 		m, order, err := e.metrics()
 		if err != nil {
@@ -400,7 +450,7 @@ func (e *Engine) step(ev *Event) error {
 	}
 	if handler == nil {
 		entry.Skipped = "no handler"
-		e.log = append(e.log, entry)
+		e.record(entry)
 		return nil
 	}
 	var sched []scheduled
@@ -423,7 +473,7 @@ func (e *Engine) step(ev *Event) error {
 		e.push(x.kind, x.target, x.time, x.prio, x.payload, fmt.Sprintf("%s>%s#%d", ev.Key, x.kind, n))
 	}
 	entry.Changes, entry.Notes, entry.Scheduled = changes, ctx.notes, len(sched)
-	e.log = append(e.log, entry)
+	e.record(entry)
 	return nil
 }
 
@@ -448,11 +498,12 @@ func (e *Engine) metrics() (map[string]any, []string, error) {
 }
 
 // RunScenario runs one scenario on a copy of the graph.
-func RunScenario(g *Graph, model *Model, sc Scenario, decider Decider) *RunResult {
+func RunScenario(g *Graph, model *Model, sc Scenario, decider Decider, opts RunOptions) *RunResult {
 	e, err := NewEngine(g.clone(), model, sc, decider)
 	if err != nil {
 		return &RunResult{Scenario: sc.Name, Status: "failed", Error: err.Error(), Metrics: map[string]any{}}
 	}
+	e.opts = opts
 	return e.Run()
 }
 

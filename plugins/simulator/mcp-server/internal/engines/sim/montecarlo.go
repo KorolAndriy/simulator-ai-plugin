@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"context"
 	"fmt"
 	"math/big"
 	"sort"
@@ -21,6 +22,8 @@ type Summary struct {
 	Metrics   map[string]*Stats
 	Goals     map[string][2]int // held, evaluated
 	Errors    []string
+	Requested int    // runs asked for; Runs is lower when the time budget ran out
+	Note      string // why fewer runs were made
 }
 
 func percentile(sorted []*big.Rat, p int) *big.Rat {
@@ -47,7 +50,8 @@ func statsOf(vals []*big.Rat) *Stats {
 }
 
 // RunMany runs a scenario n times with seeds "<seed>#i"; failed runs are counted, not averaged.
-func RunMany(g *Graph, model *Model, sc Scenario, n int, decider Decider, extraGoals *OMap) *Summary {
+// A cancelled ctx stops after the current run; the summary covers the runs made.
+func RunMany(ctx context.Context, g *Graph, model *Model, sc Scenario, n int, decider Decider, extraGoals *OMap) *Summary {
 	goals := NewOMap()
 	for _, k := range model.Goals.Keys() {
 		goals.Set(k, model.Goals.m[k])
@@ -55,12 +59,16 @@ func RunMany(g *Graph, model *Model, sc Scenario, n int, decider Decider, extraG
 	for _, k := range extraGoals.Keys() {
 		goals.Set(k, extraGoals.m[k])
 	}
-	s := &Summary{Scenario: sc.Name, Runs: n, Metrics: map[string]*Stats{}, Goals: map[string][2]int{}}
+	s := &Summary{Scenario: sc.Name, Runs: n, Requested: n, Metrics: map[string]*Stats{}, Goals: map[string][2]int{}}
 	values := map[string][]*big.Rat{}
 	for i := 0; i < n; i++ {
+		if ctx != nil && ctx.Err() != nil {
+			s.Runs, s.Note = i, fmt.Sprintf("stopped after %d of %d runs: %v", i, n, context.Cause(ctx))
+			break
+		}
 		run := sc
 		run.Seed = fmt.Sprintf("%s#%d", sc.Seed, i)
-		r := RunScenario(g, model, run, decider)
+		r := RunScenario(g, model, run, decider, RunOptions{Ctx: ctx})
 		if r.Status == "failed" {
 			s.Failed++
 			if r.Error != "" && !contains(s.Errors, r.Error) {

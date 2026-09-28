@@ -492,11 +492,21 @@ func (p *parser) atom() (node, error) {
 	return nil, exprErr("syntax error in %q", p.src)
 }
 
-var exprCache sync.Map
+// exprCache holds compiled expressions; it is emptied when it reaches maxCachedExprs so a
+// long-lived server does not grow with every model it has seen.
+var (
+	exprMu    sync.Mutex
+	exprCache = map[string]node{}
+)
+
+const maxCachedExprs = 10_000
 
 func compileExpr(src string) (node, error) {
 	src = strings.TrimSpace(src)
-	if n, ok := exprCache.Load(src); ok {
+	exprMu.Lock()
+	n, ok := exprCache[src]
+	exprMu.Unlock()
+	if ok {
 		return n, nil
 	}
 	toks, err := tokenize(src)
@@ -504,14 +514,19 @@ func compileExpr(src string) (node, error) {
 		return nil, err
 	}
 	p := &parser{toks: toks, src: src}
-	n, err := p.expr()
+	n, err = p.expr()
 	if err != nil {
 		return nil, err
 	}
 	if p.peek().kind != tEOF {
 		return nil, exprErr("syntax error in %q: unexpected %q", src, p.peek().text)
 	}
-	exprCache.Store(src, n)
+	exprMu.Lock()
+	if len(exprCache) >= maxCachedExprs {
+		clear(exprCache)
+	}
+	exprCache[src] = n
+	exprMu.Unlock()
 	return n, nil
 }
 

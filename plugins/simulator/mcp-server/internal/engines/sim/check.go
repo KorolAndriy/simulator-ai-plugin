@@ -389,6 +389,68 @@ func (c *checker) resolve(where string, spec any, model *Model) {
 	}
 }
 
+// stepLimit is the engine's default MaxSteps.
+const stepLimit = 1_000_000
+
+// staticDuration is a duration known before the run (not an =expression over params).
+func staticDuration(v any) (int64, bool) {
+	if s, ok := v.(string); ok && strings.HasPrefix(s, "=") {
+		return 0, false
+	}
+	d, err := parseDuration(v)
+	return d, err == nil
+}
+
+// occurrences warns when a recurring event over the horizon, times its targets, exceeds
+// the step limit.
+func (c *checker) occurrences(w string, e *OMap, model *Model) {
+	ev, _ := e.Get("every")
+	every, ok := staticDuration(ev)
+	if ev == nil || !ok || every <= 0 {
+		return
+	}
+	atRaw, has := e.Get("at")
+	if !has {
+		atRaw = ratZero
+	}
+	at, ok := staticDuration(atRaw)
+	if !ok {
+		return
+	}
+	horizon := model.Horizon
+	for _, sc := range c.scenarios {
+		if h, ok := sc.Get("horizon"); ok && h != nil {
+			if d, ok := staticDuration(h); ok && d > horizon {
+				horizon = d
+			}
+		}
+	}
+	targets := int64(1)
+	if ft, ok := e.Get("for_type"); ok && c.graph != nil {
+		targets = 0
+		for _, a := range c.graph.actors {
+			if c.actorType(a) == show(ft) {
+				targets++
+			}
+		}
+	}
+	if horizon < at {
+		return
+	}
+	if n := ((horizon-at)/every + 1) * targets; n > stepLimit {
+		c.r.warnf(w, "%s occurrences (horizon / every x %d target(s)) exceed the step limit %s: the run will stop "+
+			"early; use a longer `every` or a shorter horizon", thousands(n), targets, thousands(stepLimit))
+	}
+}
+
+func thousands(n int64) string {
+	s := fmt.Sprint(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
+
 // Check validates a model, optionally against a graph and scenarios.
 func Check(modelSrc []byte, graph *Graph, scenarios []*OMap) *CheckReport {
 	r := &CheckReport{Errors: []string{}, Warnings: []string{}}
@@ -474,6 +536,7 @@ func Check(modelSrc []byte, graph *Graph, scenarios []*OMap) *CheckReport {
 				r.warnf(w, "no actor of type %q in the graph: this event never fires", show(ft))
 			}
 		}
+		c.occurrences(w, e, model)
 	}
 	for _, ev := range sortedKeys(keysOf(c.emitted)) {
 		if len(c.handled[ev]) == 0 {
