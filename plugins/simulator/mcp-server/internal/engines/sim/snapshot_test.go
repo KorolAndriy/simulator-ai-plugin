@@ -1,6 +1,9 @@
 package sim
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestReadAccountsFoldsDebitCreditAndSkipsSystem(t *testing.T) {
 	g := newGraph()
@@ -48,5 +51,51 @@ func TestGraphFileRoundTrip(t *testing.T) {
 		if g2.actorIdx[a.ID].Type != a.Type {
 			t.Errorf("type of %s lost", a.ID)
 		}
+	}
+}
+
+// The layer endpoints return elements in different orders; a snapshot must not depend
+// on which one was read, because graph order drives the random draws.
+func TestLayerGraphOrderIsCanonical(t *testing.T) {
+	nodes := []layerNode{
+		{ID: "c", Title: "C", FormTitle: "t"}, {ID: "a", Title: "A", FormTitle: "t"},
+		{ID: "b", Title: "B", FormTitle: "t"}, {ID: "a", Title: "A", FormTitle: "t"},
+		{ID: "l", Title: "L", FormTitle: "Layers"},
+	}
+	edges := []layerEdge{
+		{ID: "e2", Source: "a", Target: "b"}, {ID: "e1", Source: "b", Target: "c"},
+		{ID: "e2", Source: "a", Target: "b"}, {ID: "e0", Source: "l", Target: "a"},
+	}
+	g := layerGraph("layer", nodes, edges)
+	var ids []string
+	for _, a := range g.actors {
+		ids = append(ids, a.ID)
+	}
+	var links []string
+	for _, l := range g.links {
+		links = append(links, l.ID)
+	}
+	if got := strings.Join(ids, ","); got != "a,b,c" {
+		t.Errorf("actors = %s, want a,b,c", got)
+	}
+	if got := strings.Join(links, ","); got != "e1,e2" {
+		t.Errorf("links = %s, want e1,e2", got)
+	}
+}
+
+func TestUnnamedFormTypesFindsBareFormIDs(t *testing.T) {
+	g, err := LoadGraph([]byte(`layerId: x
+actors:
+  - {id: a, title: A, formId: 101}
+  - {id: b, title: B, formId: 101, formName: Shops}
+  - {id: c, title: C, formId: 102}
+edges: []
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := unnamedFormTypes(g)
+	if len(got) != 2 || len(got["101"]) != 1 || got["101"][0].ID != "a" || len(got["102"]) != 1 {
+		t.Errorf("unnamed = %v, want 101:[a] 102:[c]", got)
 	}
 }

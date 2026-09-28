@@ -169,6 +169,10 @@ func loadInputs(ctx context.Context, args map[string]any, needGraph bool) (*inpu
 		if in.graph, err = LoadGraph(src); err != nil {
 			return fail("%v", err)
 		}
+		// a pullGraphFile output names forms only by id; use their titles when logged in
+		if len(unnamedFormTypes(in.graph)) > 0 && ecore.EnsureAuth(ctx) == nil {
+			nameFormTypes(ctx, in.graph)
+		}
 	case needGraph:
 		return fail("pass layerId (live) or graphPath (layer YAML file)")
 	}

@@ -40,6 +40,7 @@ sim:
 
 Rules:
 - Actors keep their order from the file. Every "for each actor" in this spec uses this order.
+- A snapshot of a live layer lists actors and links sorted by id, so the result does not depend on the order the Simulator API returns them in. An actor or edge placed twice appears once.
 - A file without `sim:` sections (straight from `pullGraphFile`) is valid: types come from `formName` or `formId`, there are no accounts.
 - An edge whose source or target is not an actor in the file is dropped.
 
@@ -180,3 +181,4 @@ Each directory in `testdata/conformance/` holds `graph.yaml`, `model.yaml`, `sce
 
 - Jev decisions (`jev:` blocks) are not available here: a `decide` uses its `rule`, or a uniform choice without one.
 - Publishing results to Simulator and the slow mode (a live copy updated step by step) are not available yet; `simulationRun` only reads.
+- A `graphPath` file straight from `pullGraphFile` names forms only by `formId`. When logged in, `simulationRun` and `simulationCheck` replace such types with the form titles from Simulator, so a model can say `type: Shops` for either input.

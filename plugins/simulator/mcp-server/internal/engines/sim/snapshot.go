@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/url"
+	"sort"
 	"time"
 
 	"github.com/corezoid/simulator-ai-plugin/plugins/simulator/mcp-server/internal/engines/ecore"
@@ -113,13 +114,36 @@ func Snapshot(ctx context.Context, layerID string, period time.Duration) (*Graph
 	if err != nil {
 		return nil, fmt.Errorf("read layer edges: %w", err)
 	}
+	g := layerGraph(layerID, nodes, edges)
+	if period > 0 {
+		g.Source.Set("period_seconds", ratInt(int64(period.Seconds())))
+	}
+	window := url.Values{}
+	if period > 0 {
+		now := time.Now()
+		window.Set("from", fmt.Sprint(now.Add(-period).UnixMilli()))
+		window.Set("to", fmt.Sprint(now.UnixMilli()))
+	}
+	for _, a := range append([]*Actor(nil), g.actors...) {
+		rows, err := readPaged[accountRow](ctx, "/accounts/"+ecore.Seg(a.ID), window, 100)
+		if err != nil {
+			return nil, fmt.Errorf("read accounts of %s: %w", a.Title, err)
+		}
+		readAccounts(g, a, rows)
+	}
+	return g, nil
+}
+
+// layerGraph builds the snapshot graph from the layer's nodes and edges.
+func layerGraph(layerID string, nodes []layerNode, edges []layerEdge) *Graph {
+	// Graph order drives the random draws, and the layer endpoints return elements in
+	// different orders, so a snapshot lists actors and links sorted by id (model format §Graph).
+	sort.SliceStable(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
+	sort.SliceStable(edges, func(i, j int) bool { return edges[i].ID < edges[j].ID })
 	g := newGraph()
 	g.Source.Set("kind", "simulator")
 	g.Source.Set("layer", layerID)
 	g.Source.Set("taken_at", ratInt(time.Now().Unix()))
-	if period > 0 {
-		g.Source.Set("period_seconds", ratInt(int64(period.Seconds())))
-	}
 	for _, n := range nodes {
 		if g.actorIdx[n.ID] != nil || systemForms[n.FormTitle] {
 			continue // one actor placed twice is one actor
@@ -155,20 +179,7 @@ func Snapshot(ctx context.Context, layerID string, period time.Duration) (*Graph
 		}
 		g.addLink(&Link{ID: e.ID, Source: e.Source, Target: e.Target, EdgeType: et, Mediator: e.LinkedActorID})
 	}
-	window := url.Values{}
-	if period > 0 {
-		now := time.Now()
-		window.Set("from", fmt.Sprint(now.Add(-period).UnixMilli()))
-		window.Set("to", fmt.Sprint(now.UnixMilli()))
-	}
-	for _, a := range append([]*Actor(nil), g.actors...) {
-		rows, err := readPaged[accountRow](ctx, "/accounts/"+ecore.Seg(a.ID), window, 100)
-		if err != nil {
-			return nil, fmt.Errorf("read accounts of %s: %w", a.Title, err)
-		}
-		readAccounts(g, a, rows)
-	}
-	return g, nil
+	return g
 }
 
 func anyMap(m map[string]any) any {
@@ -310,4 +321,36 @@ func nilIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+// unnamedFormTypes returns, per form id, the actors whose type is a bare form id: a
+// pullGraphFile output has formId but no formName, so its types are numbers.
+func unnamedFormTypes(g *Graph) map[string][]*Actor {
+	out := map[string][]*Actor{}
+	for _, a := range g.actors {
+		if f, ok := a.Data.Get("_form_id"); ok && f != nil && a.Type != "" && a.Type == show(f) {
+			out[a.Type] = append(out[a.Type], a)
+		}
+	}
+	return out
+}
+
+// nameFormTypes replaces bare form-id types with form titles read from Simulator
+// (GET /forms/{id}). Forms that cannot be read keep their id. Returns how many actors
+// got a title.
+func nameFormTypes(ctx context.Context, g *Graph) int {
+	n := 0
+	for id, actors := range unnamedFormTypes(g) {
+		var form struct {
+			Title string `json:"title"`
+		}
+		if err := papiGet(ctx, "/forms/"+ecore.Seg(id), nil, &form); err != nil || form.Title == "" {
+			continue
+		}
+		for _, a := range actors {
+			a.Type = form.Title
+			n++
+		}
+	}
+	return n
 }
