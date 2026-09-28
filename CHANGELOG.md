@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+- pushGraphFile: edges were placed with a position `{x:0,y:0}`, which the server treats as a grid
+  cell, so every push with more than one new edge failed with `Occupied cells: (A, 1)`. Edge
+  placements are now sent without a position.
+- pushGraphFile: an actor without `data` in the file failed to create (`body must have required
+  property 'data'`); an empty `data` object is sent instead.
+- createForm / getForms / searchForms descriptions and the simulator-forms skill now say that
+  private/draft forms (`isTemplate=false`) are not listed by getForms/searchForms; pushGraphFile's
+  description says that a UUID id places the existing actor instead of copying it.
+
 ### Changed
 - simulator-app-generator: design quality is now an explicit deliverable — a gated design brief
   in Phase 3 (§5.3a), tokens seeded in Phase 4, an acceptance-criteria quality bar (§10.1) and a
