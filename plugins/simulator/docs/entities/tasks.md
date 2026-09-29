@@ -30,7 +30,12 @@ The people on a task are expressed as **access rules** (`saveAccessRules`,
   `execute` are **optional**. Setting any privilege implies `view`.
 - **`reactionOrders`** `{sign, ds, execute}` (positive integers) order multi-step
   sign-off: give approver 1 `reactionOrders.sign=1`, approver 2 `=2`, etc. The same
-  applies to `ds` for sequential legal signing.
+  applies to `ds` for sequential legal signing. Same number = parallel.
+- `reactionOrders` is **optional**. A single executor needs only `execute:true` —
+  whether the user is new to the task or already had access (e.g. via workspace
+  sharing). On `update` of the task's own access, resend `reactionOrders` to keep a
+  sequence — omitting it clears the stored order. Sharing a graph/layer never touches
+  `sign`/`ds`/`execute` or their orders on the tasks inside.
 - One person can hold several roles in **one** rule (`{execute:true, sign:true}`);
   different people get **separate** rules.
 - The **creator is the owner implicitly** — never add a self access-rule.
@@ -86,6 +91,13 @@ reaction text always rides in the `description` argument (there is no `content` 
 
 Read progress with `getReactions(actorId="<taskId>", view="flat")` and tally `done` /
 `sign` / `ds` / `reject` against the people granted `execute` / `sign` / `ds`.
+
+**When is the task complete?** Every user granted `sign` / `ds` / `execute` is required,
+with or without `reactionOrders`; the task is complete (progress 100) once each of them has
+left the matching reaction (`execute` → `done`). Access groups are not counted — grant roles
+to individual users. `reactionOrders` only sets the sequence: stages run `sign` → `ds` →
+`execute` once anyone on the task has an order, and users without an order act last in
+their stage.
 
 ## Finding tasks
 
