@@ -1,0 +1,60 @@
+# Items move supplier -> warehouse -> shop -> customers. No money at all.
+value_types:
+  items: {kind: integer, conserved: true, min: 0}
+  hours: {kind: decimal, scale: 2, conserved: false}
+  count: {kind: integer, conserved: false}
+
+refs:
+  supplier:  {title: Supplier}
+  warehouse: {title: Warehouse}
+  shop:      {title: Shop}
+  customers: {title: Customers}
+  loader:    {title: Loader}
+
+params:
+  demand_every: 30m
+  delivery_time: 2h
+  load_hours: 0.5
+
+horizon: 24h
+
+initial_events:
+  - {event: sell, target: shop, at: 30m, every: 30m, priority: 30}
+
+behaviors:
+  shop:
+    sell:
+      - if: "self.acc('stock') > 0"
+        then:
+          - transfer: {from: {actor: self, account: stock}, to: {actor: refs.customers, account: stock}, amount: 1}
+        else:
+          - add: {actor: self, account: missed_sales, amount: 1, value_type: count}
+      - if: "self.acc('stock') <= self.reorder_at and not self.ordered"
+        then:
+          - set: {ordered: true}
+          - schedule: {event: ship_to_shop, target: refs.warehouse, after: 0, priority: 40, payload: {qty: "=self.batch"}}
+    receive:
+      - transfer: {from: {actor: self, account: incoming}, to: {actor: self, account: stock}, amount: "self.acc('incoming')"}
+      - set: {ordered: false}
+  warehouse:
+    ship_to_shop:
+      - transfer:
+          from: {actor: self, account: stock}
+          to: {actor: refs.shop, account: incoming}
+          amount: "min(event.qty, self.acc('stock'))"
+      - add: {actor: refs.loader, account: worked, amount: params.load_hours}
+      - schedule: {event: receive, target: refs.shop, after: params.delivery_time, priority: 10}
+      - if: "self.acc('stock') <= self.reorder_at"
+        then:
+          - schedule: {event: ship_to_warehouse, target: refs.supplier, after: 0, priority: 40, payload: {qty: "=self.batch"}}
+  supplier:
+    ship_to_warehouse:
+      - transfer: {from: {actor: self, account: stock}, to: {actor: refs.warehouse, account: stock}, amount: event.qty}
+      - add: {actor: refs.loader, account: worked, amount: params.load_hours}
+
+metrics:
+  sold: "refs.customers.acc('stock')"
+  missed_sales: "refs.shop.acc('missed_sales')"
+  shop_stock: "refs.shop.acc('stock')"
+  warehouse_stock: "refs.warehouse.acc('stock')"
+  loader_hours: "refs.loader.acc('worked')"

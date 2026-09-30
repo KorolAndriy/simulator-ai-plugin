@@ -132,7 +132,8 @@ func handleCompactGraphLayout(ctx context.Context, req mcp.CallToolRequest) (*mc
 			titleByActor[p.ID] = p.Title
 			allPlacements = append(allPlacements, pl)
 		}
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit
@@ -160,7 +161,8 @@ func handleCompactGraphLayout(ctx context.Context, req mcp.CallToolRequest) (*mc
 		for _, e := range page.Data {
 			edges = append(edges, compactEdge{Source: e.Source, Target: e.Target})
 		}
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit

@@ -19,7 +19,34 @@
 
 ## [Unreleased]
 
+### Added
+- Behaviour simulation engine (`internal/engines/sim`) with the `simulationCheck`, `simulationRun` and
+  `simulationSnapshot` tools and the `simulator-simulate` skill: YAML behaviour rules over any layer,
+  exact decimal accounts with conserved types, a discrete-event queue in model time, scenario comparison,
+  many-run medians/ranges and goal shares, and a static model check. Read-only: nothing is written to
+  Simulator. The model format is specified in `plugins/simulator/docs/simulation/model-format.md`; the
+  engine reproduces the reference engine's answers on the conformance cases (`TestConformance`).
+
+### Fixed
+- pushGraphFile: edges were placed with a position `{x:0,y:0}`, which the server treats as a grid
+  cell, so every push with more than one new edge failed with `Occupied cells: (A, 1)`. Edge
+  placements are now sent without a position.
+- pushGraphFile: an actor without `data` in the file failed to create (`body must have required
+  property 'data'`); an empty `data` object is sent instead.
+- createForm / getForms / searchForms descriptions and the simulator-forms skill now say that
+  private/draft forms (`isTemplate=false`) are not listed by getForms/searchForms; pushGraphFile's
+  description says that a UUID id places the existing actor instead of copying it.
+- Codex MCP startup no longer depends on `CLAUDE_PLUGIN_ROOT`: the launcher keeps the user's
+  workspace in `SIMULATOR_WORK_DIR` and resolves the installed plugin root separately, so Codex
+  completes the MCP initialize handshake after a marketplace install.
+- Layer reads through `/graph_layers/paginated` (pullGraphFile, pushGraphFile, getAllLayerPlacements,
+  compactGraphLayout, pruneLongEdges) stopped at the first short page. The server applies LIMIT before it
+  drops deleted actors and edges, so one deleted element made a page short and silently cut off the rest
+  of the layer. Pages are now read until an empty one.
+
 ### Changed
+- access rules / tasks: `reactionOrders` is documented as optional — an executor or signer without an order still counts toward task completion — and the completion rule is spelled out
+- bump github.com/mark3labs/mcp-go from 0.58.0 to 1.1.0 (replaces #108, which was based on `main`)
 - simulator-app-generator: design quality is now an explicit deliverable — a gated design brief
   in Phase 3 (§5.3a), tokens seeded in Phase 4, an acceptance-criteria quality bar (§10.1) and a
   mandatory human visual pass (§10.2)

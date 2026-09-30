@@ -1,0 +1,91 @@
+# SAMPLE-01: product, three clients, one executor, human or AI mode.
+value_types:
+  UAH:   {kind: decimal, scale: 2, conserved: true}
+  slots: {kind: integer, conserved: true, min: 0}
+
+refs:
+  company:  {title: Company}
+  executor: {title: Executor}
+  compute:  {title: Compute provider}
+
+params:
+  price: 100
+  mode: human            # human | ai
+  patience: 15m          # a waiting order is cancelled after this
+  human_duration: 10m
+  human_labour: 20
+  ai_duration: 5m
+  ai_labour: 20
+  ai_compute: 5
+  b_random: false        # variant: client B accepts only if u < 0.5
+  b_threshold: 0.5
+
+horizon: 20m             # inclusive
+
+initial_events:
+  - {event: offer, for_type: client, at: 0, priority: 30}
+
+behaviors:
+  client:
+    offer:
+      - decide:
+          var: choice
+          options: [accept, decline]
+          rule: >-
+            'accept' if params.price <= self.budget
+            and (not params.b_random or self.title != 'Client B' or params.get('u_b', rand()) < params.b_threshold)
+            else 'decline'
+          jev:
+            question: "The client just received an offer at price {price} with a budget of {budget}. What does the client do?"
+            criteria:
+              accept: places one order at the offered price
+              decline: does not order now
+      - if: "choice == 'accept'"
+        then:
+          - create:
+              as: order
+              type: order
+              title: "='Order ' + self.title"
+              data: {client: "=self.id", price: "=params.price", status: waiting}
+              link_from: self
+          - set: {status: ordered}
+          - schedule: {event: wait_timeout, target: order, after: params.patience, priority: 20}
+          - enqueue: {resource: refs.executor, account: slots, target: order, event: work_start, priority: 40}
+        else:
+          - set: {status: declined}
+
+  order:
+    work_start:
+      # contract of the started action: mode, duration and costs are fixed here
+      - set:
+          status: in_work
+          started_at: "=now"
+          mode: "=params.mode"
+          labour_cost: "=params.ai_labour if params.mode == 'ai' else params.human_labour"
+          compute_cost: "=params.ai_compute if params.mode == 'ai' else 0"
+      - schedule:
+          event: complete
+          after: "params.ai_duration if self.mode == 'ai' else params.human_duration"
+          priority: 10
+    complete:
+      - transfer: {from: {actor: self.client, account: cash}, to: {actor: refs.company, account: cash}, amount: self.price}
+      - transfer: {from: {actor: refs.company, account: cash}, to: {actor: refs.executor, account: wages}, amount: self.labour_cost}
+      - transfer: {from: {actor: refs.company, account: cash}, to: {actor: refs.compute, account: cash}, amount: self.compute_cost}
+      - set: {status: done, done_at: "=now"}
+      - set_on: {actor: self.client, fields: {status: served}}
+      - release: {target: self}
+    wait_timeout:
+      - if: "self.status == 'waiting'"
+        then:
+          - dequeue: {resource: refs.executor, target: self}
+          - set: {status: cancelled}
+          - set_on: {actor: self.client, fields: {status: left}}
+
+metrics:
+  margin: "refs.company.acc('cash')"
+  leaves: "count(type='client', status='left')"
+  completed: "count(type='order', status='done')"
+
+goals:
+  no_leaves: "leaves == 0"
+  margin_over_100: "margin > 100"

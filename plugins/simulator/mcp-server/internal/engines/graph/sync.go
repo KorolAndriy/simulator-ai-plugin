@@ -107,7 +107,8 @@ func fetchLayerActors(ctx context.Context, layerID string) ([]layerActor, error)
 			return nil, fmt.Errorf("parse layer actors: %w (body: %.200s)", err, body)
 		}
 		all = append(all, page.Data...)
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit
@@ -132,7 +133,8 @@ func fetchLayerEdges(ctx context.Context, layerID string) ([]layerEdge, error) {
 			return nil, fmt.Errorf("parse layer edges: %w (body: %.200s)", err, body)
 		}
 		all = append(all, page.Data...)
-		if len(page.Data) < limit {
+		// a short page is not the last: the server drops deleted elements after LIMIT
+		if len(page.Data) == 0 {
 			break
 		}
 		offset += limit
@@ -144,16 +146,21 @@ func fetchLayerEdges(ctx context.Context, layerID string) ([]layerEdge, error) {
 type manageLayerItem struct {
 	Action string `json:"action"`
 	Data   struct {
-		ID       string `json:"id"`
-		Type     string `json:"type"`
-		LaID     int    `json:"laId,omitempty"`
-		LaIDSrc  int    `json:"laIdSource,omitempty"`
-		LaIDTgt  int    `json:"laIdTarget,omitempty"`
-		Position struct {
-			X int `json:"x"`
-			Y int `json:"y"`
-		} `json:"position"`
+		ID      string `json:"id"`
+		Type    string `json:"type"`
+		LaID    int    `json:"laId,omitempty"`
+		LaIDSrc int    `json:"laIdSource,omitempty"`
+		LaIDTgt int    `json:"laIdTarget,omitempty"`
+		// Position is set for nodes only. Edges must not carry one: the server
+		// treats {x:0,y:0} as a grid cell and rejects every edge after the first
+		// with "Occupied cells: (A, 1)".
+		Position *layerPosition `json:"position,omitempty"`
 	} `json:"data"`
+}
+
+type layerPosition struct {
+	X int `json:"x"`
+	Y int `json:"y"`
 }
 
 // ---- Main handlers ----

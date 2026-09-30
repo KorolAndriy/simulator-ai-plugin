@@ -27,6 +27,7 @@ The plugin bundles a Go MCP server that exposes the full Simulator.Company publi
 | `simulator-smart-forms-logic` | "add logic to smart form", "wire corezoid to smart form", "/get /send process" | Brief generator for the Corezoid process(es) bound to a Smart Form; delegates to `corezoid-create` / `corezoid-edit`; `procId` binding |
 | `simulator-finance`  | "record transaction", "account balance", "transfer funds"| Accounts, transactions, transfers, currencies, counters |
 | `simulator-charts`   | "chart", "dashboard", "visualise on layer"               | Dashboard charts & time-series visualisation on layers  |
+| `simulator-simulate` | "what if", "simulate", "forecast", "compare scenarios"   | Behaviour simulation: rules in model time over any layer, scenario comparison, ranges over many runs |
 | `simulator-reactions`| "comment on this actor", "reply", "pin comment"          | Reactions: comments / events / approvals / ratings (threaded) |
 | `simulator-chat`     | "write a message to user N", "DM", "open a chat with"    | Messaging: send a message to a user, p2p/group chats (Events-form actors; messages are comment reactions) |
 | `simulator-tasks`    | "create a task", "assign to", "who approves", "needs signature" | Tasks/assignments: an Events-form actor + executor (`execute`) / approver (`sign`) / legal signer (`ds`) roles |
@@ -315,6 +316,9 @@ the actor/node items.)
 | `listTrash`              | List soft-deleted objects in a Smart Form environment                                                |
 | `restoreFromTrash`       | Restore a soft-deleted object from trash                                                             |
 | `createChart`            | Create a dashboard chart actor (dynamic `actorFilter` or explicit accounts mode)                     |
+| `simulationCheck`        | Check a behaviour model (and scenarios) against a layer before running: unknown actions, typos in params, unresolved refs, unhandled events |
+| `simulationRun`          | Simulate a layer: run behaviour rules in model time per scenario and compare metrics; `runs` > 1 gives medians, ranges and goal shares. Read-only |
+| `simulationSnapshot`     | Read a layer with its account values into `<layerId>.sim.yaml` (plugin layer YAML + `sim:` sections) |
 | `buildLink`              | Build an absolute web-app deep-link (actor / event / chat / layer / transaction / …) for the user to click; resolves the web base + workspace automatically, and defaults to the user's open actor/layer from the UI context when present |
 
 ## Architecture
@@ -328,7 +332,8 @@ Claude Code / Codex / Kiro
         │               transactions, graph, apps) — one tool per backend op
         ├── engines     pullGraphFile, pushGraphFile, exportGraph, importGraph,
         │               uploadGraphFile, getTaskStatus, compactGraphLayout,
-        │               pruneLongEdges, getAllLayerPlacements, uploadActorPicture(Bulk), createChart, buildLink
+        │               pruneLongEdges, getAllLayerPlacements, uploadActorPicture(Bulk), createChart, buildLink,
+        │               simulationCheck, simulationRun, simulationSnapshot
         └── apiclient   HTTP → Simulator /papi/1.0 (local :9000 or mw gateway)
 ```
 
@@ -405,6 +410,12 @@ Specialist for financial and metric tracking:
 Specialist for dashboard charts and time-series visualisation on graph layers — builds
 chart actors via `createChart` (dynamic `actorFilter` or explicit accounts mode).
 
+### `/simulator-simulate`
+Behaviour simulation ("what if") on any layer: describe how actors behave in a YAML model,
+change parameters per scenario, play model time forward and compare metrics — with ranges and
+goal shares over many random runs. Uses `simulationCheck` / `simulationRun` /
+`simulationSnapshot`; read-only. Model format: `plugins/simulator/docs/simulation/model-format.md`.
+
 ## Project structure
 
 ```
@@ -424,7 +435,7 @@ simulator-ai-plugin/
 │   ├── ARCHITECTURE.md          # Plugin & MCP-server architecture
 │   └── INTEGRATION.md           # pong-server integration plan & status
 ├── public/                      # Generated AI-discovery artifacts (llms.txt, .well-known/skills/index.json)
-└── plugins/simulator/           # Plugin root ($CLAUDE_PLUGIN_ROOT for Claude Code, Codex and Kiro)
+└── plugins/simulator/           # Plugin root (skill path token; MCP launcher resolves it per host)
     ├── .claude-plugin/
     │   └── plugin.json          # Claude Code plugin manifest
     ├── .codex-plugin/

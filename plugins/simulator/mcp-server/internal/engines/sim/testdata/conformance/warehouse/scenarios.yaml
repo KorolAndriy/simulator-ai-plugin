@@ -1,0 +1,5 @@
+- {name: base}
+- {name: fast_delivery, params: {delivery_time: 30m}}
+- {name: small_batches, set: [{actor: shop, fields: {batch: 4}}]}
+- {name: slow_delivery, params: {delivery_time: 6h}}
+- {name: negative_batch, set: [{actor: shop, fields: {batch: -5}}]}
