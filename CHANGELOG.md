@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.9.0]
+
+### Added
+- behaviour simulation engine (simulationRun / simulationCheck / simulationSnapshot) (#111)
+
+### Changed
+- reactionOrders is optional; executors without an order still close the task (#117)
+- bump github.com/mark3labs/mcp-go from 0.58.0 to 1.1.0 (#114)
+- document the page-level focusVisible flag (#112)
+- document the page-level browser tab title (#106)
+
+### Fixed
+- read layer pages until an empty one, not a short one (#115)
+- make MCP startup work in Codex (#81)
+- place pushGraphFile edges without a position, send data on create (#110)
+
 ## [2.8.0]
 
 ### Added
