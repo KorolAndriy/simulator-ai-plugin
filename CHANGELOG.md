@@ -11,6 +11,16 @@
   engine reproduces the reference engine's answers on the conformance cases (`TestConformance`).
 
 ### Fixed
+- [CE-15944] Layer position updates (`compactGraphLayout`, `updateLayerPositions`, pushGraphFile) sent
+  the `PUT /graph_layers/actors` body as `{"items":[…]}`, which the server rejects with 400
+  `body must be array` — surfaced by compactGraphLayout as `applyPositions batch 0`, and swallowed as a
+  log-only warning on the push path so positions silently never reached the canvas. The body is now a
+  bare JSON array. compactGraphLayout additionally: sends all placements in one request (100-item
+  batches conflicted at batch boundaries via the occupied-cell check and left the layer
+  half-compacted), skips placements already on their computed cell (so a repeat run no longer fails),
+  and de-collides multiple placements of the same actor. pushGraphFile compares coordinates on the
+  50px grid so snap-adjusted nodes are not resent, and now reports position-update failures in its
+  result (`warnings`) instead of only logging them.
 - pushGraphFile: edges were placed with a position `{x:0,y:0}`, which the server treats as a grid
   cell, so every push with more than one new edge failed with `Occupied cells: (A, 1)`. Edge
   placements are now sent without a position.

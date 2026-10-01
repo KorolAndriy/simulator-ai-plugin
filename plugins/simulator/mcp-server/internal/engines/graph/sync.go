@@ -203,7 +203,7 @@ func handlePushGraphFile(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 		return mcp.NewToolResultError(fmt.Sprintf("[Error] write YAML: %v", writeErr)), nil
 	}
 
-	out, _ := json.Marshal(map[string]interface{}{
+	outMap := map[string]interface{}{
 		"layerId": result.LayerID,
 		"actors": map[string]int{
 			"created":   result.ActorsCreated,
@@ -217,7 +217,11 @@ func handlePushGraphFile(ctx context.Context, req mcp.CallToolRequest) (*mcp.Cal
 			"deleted": result.EdgesDeleted,
 		},
 		"fileUpdated": true,
-	})
+	}
+	if len(result.Warnings) > 0 {
+		outMap["warnings"] = result.Warnings
+	}
+	out, _ := json.Marshal(outMap)
 	return mcp.NewToolResultText(string(out)), nil
 }
 
