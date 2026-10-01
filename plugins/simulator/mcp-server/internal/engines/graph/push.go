@@ -22,6 +22,9 @@ type PushGraphResult struct {
 	ActorsCreated, ActorsUpdated, ActorsUnchanged, ActorsDeleted, ActorsRecreated int
 	EdgesCreated, EdgesDeleted                                                    int
 	Changes                                                                       map[string]string
+	// Warnings collects non-fatal problems (e.g. a position update the server
+	// rejected) so the caller can report them instead of silently claiming success.
+	Warnings []string
 }
 
 // PushGraphFile syncs a parsed graph to the simulator API without touching the
@@ -795,13 +798,12 @@ func (s *GraphSyncer) updatePositions(ctx context.Context, layerID string, updat
 		return nil
 	}
 	// The /graph_layers/actors/{layerId} PUT endpoint takes a bare JSON array as
-	// its body (Fastify body schema is `type: array`) — the same contract the
-	// declarative `updateLayerPositions` tool uses via InBodyRoot. Each item must
-	// carry `id` as a STRING (the laId); an `id` sent as a number silently no-ops.
-	// Wrapping the array as {"items": [...]} is rejected with 400 "body must be
-	// array" (and, because this caller only logs a warning on failure, that
-	// showed up as positions never reaching the canvas). Normalise the id type
-	// here so callers can keep passing whatever they already had.
+	// its body (Fastify body schema `type: array`, items validated against
+	// actorPosition) — the same contract the declarative `updateLayerPositions`
+	// tool uses via InBodyRoot. The schema declares `id` as a string (the laId),
+	// so we send it as a string to match the contract. Wrapping the array as
+	// {"items": [...]} is rejected with 400 "body must be array". Normalise the id
+	// type here so callers can keep passing whatever they already had.
 	normalised := make([]map[string]interface{}, 0, len(updates))
 	for _, u := range updates {
 		item := make(map[string]interface{}, len(u))
@@ -1007,7 +1009,13 @@ func (s *GraphSyncer) pushGraph(ctx context.Context, graph GraphFile, layerID st
 					} else {
 						result.ActorsUnchanged++
 					}
-					if int(sa.Position.X) != a.Position.X || int(sa.Position.Y) != a.Position.Y {
+					// Compare on pong's 50px grid: the server stores snapped
+					// coordinates, so a raw YAML value like x:130 is kept as 150.
+					// Comparing raw-vs-snapped flagged every such node as changed,
+					// resent it, and — since its snapped target equals its current
+					// cell — tripped the occupied-cell check, failing the batch.
+					if snapCoord(int(sa.Position.X)) != snapCoord(a.Position.X) ||
+						snapCoord(int(sa.Position.Y)) != snapCoord(a.Position.Y) {
 						posUpdates = append(posUpdates, map[string]interface{}{
 							"id":       sa.LaID,
 							"position": map[string]int{"x": a.Position.X, "y": a.Position.Y},
@@ -1069,7 +1077,12 @@ func (s *GraphSyncer) pushGraph(ctx context.Context, graph GraphFile, layerID st
 
 	if len(posUpdates) > 0 {
 		if posErr := s.updatePositions(ctx, graph.LayerID, posUpdates); posErr != nil {
+			// Surface the failure in the result, not only in the log: a swallowed
+			// warning here is exactly what let the {"items":…} body-shape bug ship
+			// unnoticed — the push reported success while no position was applied.
 			log.Printf("Warning: update positions: %v", posErr)
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("positions not applied: %v", posErr))
 		}
 	}
 
