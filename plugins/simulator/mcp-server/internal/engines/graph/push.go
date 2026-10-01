@@ -794,11 +794,14 @@ func (s *GraphSyncer) updatePositions(ctx context.Context, layerID string, updat
 	if len(updates) == 0 {
 		return nil
 	}
-	// The /graph_layers/actors/{layerId} PUT endpoint expects a payload of
-	// {"items": [...]} with each item carrying `id` as a STRING (the laId)
-	// — sending a bare array, or `id` as a number, silently no-ops, which
-	// is why pre-1.x callers reported positions never reaching the canvas.
-	// Normalise both here so callers can keep passing whatever they already had.
+	// The /graph_layers/actors/{layerId} PUT endpoint takes a bare JSON array as
+	// its body (Fastify body schema is `type: array`) — the same contract the
+	// declarative `updateLayerPositions` tool uses via InBodyRoot. Each item must
+	// carry `id` as a STRING (the laId); an `id` sent as a number silently no-ops.
+	// Wrapping the array as {"items": [...]} is rejected with 400 "body must be
+	// array" (and, because this caller only logs a warning on failure, that
+	// showed up as positions never reaching the canvas). Normalise the id type
+	// here so callers can keep passing whatever they already had.
 	normalised := make([]map[string]interface{}, 0, len(updates))
 	for _, u := range updates {
 		item := make(map[string]interface{}, len(u))
@@ -829,9 +832,8 @@ func (s *GraphSyncer) updatePositions(ctx context.Context, layerID string, updat
 			end = len(normalised)
 		}
 		batch := normalised[i:end]
-		body := map[string]interface{}{"items": batch}
 		u := fmt.Sprintf("%s/graph_layers/actors/%s", s.baseURL, ecore.Seg(layerID))
-		if _, err := s.put(ctx, u, body); err != nil {
+		if _, err := s.put(ctx, u, batch); err != nil {
 			return fmt.Errorf("updatePositions batch %d: %w", i/batchSize, err)
 		}
 	}

@@ -355,7 +355,11 @@ func handleCompactGraphLayout(ctx context.Context, req mcp.CallToolRequest) (*mc
 		}
 		batch := items[i:end]
 		u := fmt.Sprintf("%s/graph_layers/actors/%s", ecore.BuildBaseURLForContext(ctx), layerID)
-		if err := apiPut(u, map[string]interface{}{"items": batch}); err != nil {
+		// The PUT /graph_layers/actors/{layerId} endpoint takes a bare JSON array
+		// as its body (Fastify body schema is `type: array`) — the same contract
+		// the declarative `updateLayerPositions` tool uses via InBodyRoot. Wrapping
+		// it as {"items": [...]} is rejected with 400 "body must be array".
+		if err := apiPut(u, batch); err != nil {
 			return mcp.NewToolResultError(
 				fmt.Sprintf("[Error] applyPositions batch %d: %v", i/batchSize, err)), nil
 		}
