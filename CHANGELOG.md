@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.9.1]
+
+### Fixed
+- simulationSnapshot wrote numbers in actor `data` (and `formId`, positions, `sim.source`) to the graph
+  file as YAML strings, so a run from the saved file read them as text: `self.price + self.cost` gave
+  `"1020"` instead of `30` and `count(price=10)` found nothing, with status `completed`. Numbers are
+  now written as YAML numbers; strings such as `"10"` stay strings. A snapshot file written by 2.9.0
+  stays wrong: simulationCheck / simulationRun now warn about it — re-take it with
+  `simulationSnapshot(layerId, overwrite: true)`. simulationRun now returns the check's `warnings`.
+- simulationRun many-run mode counted runs stopped before the horizon (`stopped_by_time`,
+  `stopped_by_limit`) as successful: their partial metrics fed the statistics and goal shares, and the
+  table showed them as ok. Metrics and goals are now over completed runs only; the table shows
+  `completed/total (N stopped, M failed)`, the reason a run stopped is listed under the table, and a
+  goal no completed run could evaluate shows `no data` instead of dropping its column.
+- Opening the first account of a conserved type at 0 (e.g. `create … accounts: [{name: cash,
+  value_type: USD}]` when the graph has no USD account) failed the step with `conserved totals changed
+  within step:`. A type with no account now counts as total 0.
+- The Release workflow published a tag without running the tests (only the binaries build was
+  required); it now runs build / vet / test first and publishes only if they pass.
+
 ## [2.9.0]
 
 ### Added
@@ -33,7 +53,7 @@
 - allow visibility placeholders (#95)
 - catch on push what only the browser caught before (#99)
 
-## [Unreleased]
+## [2.9.1]
 
 ### Added
 - Behaviour simulation engine (`internal/engines/sim`) with the `simulationCheck`, `simulationRun` and
@@ -107,7 +127,7 @@
      Do NOT bump the version or add a dated section — that is minted at release
      time by `make release VERSION=x.y.z`. See AGENTS.md → Versioning & releases. -->
 
-## [Unreleased]
+## [2.9.1]
 
 ### Added
 - **API-key authentication (`SIMULATOR_API_SECRET`).** A second, non-interactive auth mode for CI,

@@ -3,6 +3,7 @@ package sim
 import (
 	"fmt"
 	"math/big"
+	"strings"
 )
 
 type StoreError struct{ msg string }
@@ -50,32 +51,32 @@ func (s *store) begin() error {
 	return nil
 }
 
-func sameTotals(a, b map[string]*big.Rat) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		w, ok := b[k]
-		if !ok || v.Cmp(w) != 0 {
-			return false
+// totalsDiff lists the conserved types whose total changed, in name order; empty when none
+// did. A type with no account totals 0, so opening its first account at 0 changes nothing.
+func totalsDiff(before, after map[string]*big.Rat) string {
+	keys := map[string]bool{}
+	for _, m := range []map[string]*big.Rat{before, after} {
+		for k := range m {
+			keys[k] = true
 		}
 	}
-	return true
+	total := func(m map[string]*big.Rat, k string) *big.Rat {
+		if v := m[k]; v != nil {
+			return v
+		}
+		return ratZero
+	}
+	var diff strings.Builder
+	for _, k := range sortedKeys(keys) {
+		if d := new(big.Rat).Sub(total(after, k), total(before, k)); d.Sign() != 0 {
+			fmt.Fprintf(&diff, " %s: %s", k, numString(d))
+		}
+	}
+	return diff.String()
 }
 
 func (s *store) commit() error {
-	after := s.conservedTotals()
-	if !sameTotals(after, s.before) {
-		diff := ""
-		for k, v := range after {
-			old := s.before[k]
-			if old == nil {
-				old = ratZero
-			}
-			if v.Cmp(old) != 0 {
-				diff += fmt.Sprintf(" %s: %s", k, numString(new(big.Rat).Sub(v, old)))
-			}
-		}
+	if diff := totalsDiff(s.before, s.conservedTotals()); diff != "" {
 		return &BoundsError{"conserved totals changed within step:" + diff}
 	}
 	s.inStep, s.undo = false, nil
