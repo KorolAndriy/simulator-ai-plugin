@@ -183,29 +183,47 @@ func parseYAML(src []byte) (any, error) {
 // ---- JSON (tool output, actor state) --------------------------------
 
 // toJSON converts engine values into plain JSON-able values; numbers become strings.
-func toJSON(v any) any {
+func toJSON(v any) any { return plain(v, func(r *big.Rat) any { return numString(r) }) }
+
+// toYAML is toJSON for graph files: numbers stay numbers (toJSON's strings would change
+// what a value means when LoadGraph reads the file back).
+func toYAML(v any) any { return plain(v, func(r *big.Rat) any { return yamlNum{r} }) }
+
+// plain converts engine values into plain values, rendering numbers with num.
+func plain(v any, num func(*big.Rat) any) any {
 	switch x := v.(type) {
 	case *big.Rat:
-		return numString(x)
+		return num(x)
 	case *OMap:
 		if x == nil {
 			return nil
 		}
 		m := make(map[string]any, len(x.keys))
 		for _, k := range x.keys {
-			m[k] = toJSON(x.m[k])
+			m[k] = plain(x.m[k], num)
 		}
 		return m
 	case []any:
 		out := make([]any, len(x))
 		for i, e := range x {
-			out[i] = toJSON(e)
+			out[i] = plain(e, num)
 		}
 		return out
 	case *ActorView:
 		return map[string]any{"id": x.id, "title": x.title()}
 	}
 	return v
+}
+
+// yamlNum is a number in a graph file: a plain YAML int or float.
+type yamlNum struct{ r *big.Rat }
+
+func (n yamlNum) MarshalYAML() (any, error) {
+	tag := "!!float"
+	if n.r.IsInt() {
+		tag = "!!int"
+	}
+	return &yaml.Node{Kind: yaml.ScalarNode, Tag: tag, Value: numString(n.r)}, nil
 }
 
 // fromJSON converts decoded JSON (UseNumber) into engine values.
