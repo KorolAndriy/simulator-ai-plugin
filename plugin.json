@@ -27,7 +27,7 @@
       "shortDescription": "From API to KPI in your IDE",
       "longDescription": "Build your company's digital twin — actors, graph-based processes, form templates, financial accounts, transactions and transfers via the Simulator.Company REST API. Includes graph layout automation, smart-form design and runtime, dashboard charts, and process simulation. From API to KPI.",
       "developerName": "Simulator.Company",
-      "category": "Productivity",
+      "category": "Developer tools",
       "websiteURL": "https://simulator.company",
       "supportURL": "https://github.com/corezoid/simulator-ai-plugin/issues",
       "privacyPolicyURL": "https://simulator.company/privacy-policy/",
