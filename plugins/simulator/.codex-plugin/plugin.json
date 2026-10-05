@@ -22,7 +22,7 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Simulator.Company",
-    "shortDescription": "BPM and financial tracking via Simulator.Company API",
+    "shortDescription": "BPM graphs & finance in IDE",
     "longDescription": "Manage actors, graph-based business processes, form templates, financial accounts, transactions and transfers via the Simulator.Company REST API.",
     "developerName": "Simulator.Company",
     "category": "Productivity",
@@ -41,6 +41,8 @@
       "Create a business process graph for customer onboarding",
       "Show me all actors in my workspace",
       "Create a financial account to track expenses"
-    ]
+    ],
+    "logo": "./assets/logo.png",
+    "composerIcon": "./assets/composerIcon.png"
   }
 }
