@@ -53,7 +53,9 @@
 - allow visibility placeholders (#95)
 - catch on push what only the browser caught before (#99)
 
-## [2.9.1]
+## [Unreleased]
+
+## [2.10.0] - 2026-10-05
 
 ### Added
 - Directory-readiness for the public plugin catalogs: root `plugin.json` in the
