@@ -2,7 +2,7 @@
 name: simulator
 displayName: Simulator.Company
 version: 2.10.0
-description: BPM, graph, and financial-tracking toolkit for the Simulator.Company platform. Exposes the Simulator REST API as MCP tools plus 16 skills covering actors, forms, graphs, layers, accounts, transactions, transfers, charts, smart forms, meetings, reactions, and attachments.
+description: Digital-twin, graph, and financial-tracking toolkit for the Simulator.Company platform. Exposes the Simulator REST API as MCP tools plus 16 skills covering actors, forms, graphs, layers, accounts, transactions, transfers, charts, smart forms, meetings, reactions, and attachments.
 author:
   name: Simulator.Company
   url: https://simulator.company
@@ -11,7 +11,7 @@ repository: https://github.com/corezoid/simulator-ai-plugin
 license: MIT
 keywords:
   - simulator
-  - bpm
+  - digital-twin
   - business-process
   - graph
   - financial
