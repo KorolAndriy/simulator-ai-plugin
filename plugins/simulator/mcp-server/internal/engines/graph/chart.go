@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/corezoid/simulator-ai-plugin/plugins/simulator/mcp-server/internal/engines/ecore"
@@ -20,9 +22,10 @@ type ChartConfig struct {
 	LayerID     string
 	Title       string
 	Description string
-	ChartType   string // "line" | "bar" | "area" — default "line"
-	CounterType string // "amount" | "turnover" — default "amount"
-	Range       string // "lastHour" | "lastDay" | "lastWeek" | "lastMonth" — default "lastHour"
+	ChartType   string // one of chartTypes — default "line"
+	CounterType string // "amount" | "count" — default "amount"
+	Range       string // one of chartRanges — default "lastHour"
+	OrderValue  string // "default" | "desc" | "asc" — default "default"; forced to "default" for line/stackedBar
 	PositionX   int
 	PositionY   int
 
@@ -44,7 +47,131 @@ type ChartAccountEntry struct {
 	CurrencyID int    `json:"currencyId"`
 	NameID     string `json:"nameId"`
 	Color      string `json:"color,omitempty"`
-	IncomeType string `json:"incomeType,omitempty"`
+	IncomeType string `json:"incomeType,omitempty"` // "total" (default) | "credit" | "debit"
+}
+
+// Allowed values for the Dashboards actor's data.source, mirroring what the
+// Simulator UI (pong-front-end DashboardWizard / Dashboard) reads back. A value
+// outside these sets is stored fine but the chart renders "Something went
+// wrong" (e.g. counterType "turnover", issue #109), so reject it up front.
+var (
+	// DASHBOARD_CHART_TYPES minus kpiCard, which needs a single-source config
+	// this tool does not build.
+	chartTypes = []string{"line", "bar", "stackedBar", "pie", "doughnut", "funnel", "table", "polarArea", "radar"}
+	// COUNTER_TYPE — "Show values as": account amount | transaction count.
+	chartCounterTypes = []string{"amount", "count"}
+	// DASHBOARD_RANGES minus "custom", which needs rangeDates.
+	chartRanges = []string{
+		"allTime", "lastMinute", "last10Minutes", "lastHour", "today", "yesterday",
+		"lastWeek", "lastWeekExcludeToday", "last14Days", "last14DaysExcludeToday",
+		"lastMonth", "lastMonthExcludeToday", "previousMonth", "lastYear",
+		"lastYearExcludeToday", "realTime", "lineRealTime",
+	}
+	chartOrderValues = []string{"default", "desc", "asc"}
+	chartIncomeTypes = []string{"total", "credit", "debit"}
+	// MULTI_SERIES_CHART_TYPES — the UI ignores sorting for these and always
+	// saves orderValue "default"; their ranges differ too (see normalizeChartConfig).
+	multiSeriesChartTypes = []string{"line", "stackedBar"}
+)
+
+func checkChartEnum(param, value string, allowed []string) error {
+	if !slices.Contains(allowed, value) {
+		return fmt.Errorf("%s %q is not supported — use one of: %s", param, value, strings.Join(allowed, ", "))
+	}
+	return nil
+}
+
+// normalizeChartConfig applies defaults and validates every enum the UI reads
+// back from data.source. Values the UI would rewrite for the chosen chartType
+// are rewritten here the same way and reported in the returned warnings.
+func normalizeChartConfig(cfg *ChartConfig) ([]string, error) {
+	var warnings []string
+	if cfg.ChartType == "" {
+		cfg.ChartType = "line"
+	}
+	if cfg.CounterType == "" {
+		cfg.CounterType = "amount"
+	}
+	if cfg.Range == "" {
+		cfg.Range = "lastHour"
+	}
+	if cfg.OrderValue == "" {
+		cfg.OrderValue = "default"
+	}
+	if cfg.Top <= 0 {
+		cfg.Top = 20
+	}
+	for _, c := range []struct {
+		param, value string
+		allowed      []string
+	}{
+		{"chartType", cfg.ChartType, chartTypes},
+		{"counterType", cfg.CounterType, chartCounterTypes},
+		{"range", cfg.Range, chartRanges},
+		{"orderValue", cfg.OrderValue, chartOrderValues},
+	} {
+		if err := checkChartEnum(c.param, c.value, c.allowed); err != nil {
+			return nil, err
+		}
+	}
+
+	// Per-type rules of the UI (DashboardWizard rangeUtils / buildPayload).
+	if slices.Contains(multiSeriesChartTypes, cfg.ChartType) {
+		switch cfg.Range {
+		case "allTime":
+			return nil, fmt.Errorf("range \"allTime\" is not supported for chartType %q — pick a bounded range such as lastMonth or lastYear", cfg.ChartType)
+		case "realTime":
+			cfg.Range = "lineRealTime"
+			warnings = append(warnings, fmt.Sprintf("range realTime is stored as lineRealTime for chartType %s", cfg.ChartType))
+		}
+		if cfg.OrderValue != "default" {
+			warnings = append(warnings, fmt.Sprintf("orderValue %s ignored: chartType %s is not sortable, stored as default", cfg.OrderValue, cfg.ChartType))
+			cfg.OrderValue = "default"
+		}
+	} else if cfg.Range == "lineRealTime" {
+		cfg.Range = "realTime"
+		warnings = append(warnings, fmt.Sprintf("range lineRealTime is stored as realTime for chartType %s", cfg.ChartType))
+	}
+
+	// Copy before defaulting: cfg is a value but Accounts shares the caller's array.
+	cfg.Accounts = slices.Clone(cfg.Accounts)
+	for i := range cfg.Accounts {
+		if cfg.Accounts[i].IncomeType == "" {
+			cfg.Accounts[i].IncomeType = "total"
+		}
+		if err := checkChartEnum(fmt.Sprintf("accounts[%d].incomeType", i), cfg.Accounts[i].IncomeType, chartIncomeTypes); err != nil {
+			return nil, err
+		}
+	}
+	return warnings, nil
+}
+
+// chartLayerSettings is the layer_to_actors.layer_settings written for a chart
+// placement — the subset of keys the UI reads to draw the node as an expanded
+// chart. It is sent with the placement itself: /papi has no PUT
+// /graph_layers/actor_settings route (issue #109), while POST
+// /graph_layers/actors stores data.layerSettings.
+type chartLayerSettings struct {
+	ExpandType string            `json:"expandType"` // "chart"
+	Expand     bool              `json:"expand"`
+	Offset     chartLayerOffsets `json:"offset"`
+}
+
+// chartLayerOffsets is the {left,right,top,bottom} offset every layerSettings
+// writer uses (not sim-api's {x,y} typing — see the workspace CLAUDE.md).
+type chartLayerOffsets struct {
+	Left   int `json:"left"`
+	Right  int `json:"right"`
+	Top    int `json:"top"`
+	Bottom int `json:"bottom"`
+}
+
+func newChartLayerSettings() chartLayerSettings {
+	return chartLayerSettings{
+		ExpandType: "chart",
+		Expand:     true,
+		Offset:     chartLayerOffsets{Left: 300, Right: 300, Top: 200, Bottom: 200},
+	}
 }
 
 // CreateChartResult is returned by CreateChart.
@@ -52,6 +179,9 @@ type CreateChartResult struct {
 	DashboardActorID string `json:"dashboardActorId"`
 	FilterActorID    string `json:"filterActorId,omitempty"`
 	LaID             int    `json:"laId"`
+	// Warnings lists best-effort steps that did not fully succeed; the chart
+	// exists but may need a follow-up (e.g. linking the layer to a graph).
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ---- System form ID cache for chart forms ----
@@ -170,29 +300,34 @@ func chartJSONString(v interface{}) string {
 
 // ---- Graph parent lookup ----
 
-// findGraphActorForLayer returns the ID of the Graphs actor that owns the given layer.
-// Returns "" if not found — the caller must handle the absence gracefully.
-func findGraphActorForLayer(ctx context.Context, layerID, auth, baseURL string) string {
+// findGraphActorForLayer returns the ID of the Graphs actor linked to the given
+// layer, or "" when there is none. An error means the lookup itself failed.
+//
+// GET /graph/linked_actors/{id} answers {data: {nodes: [...], edges: [...]}};
+// nodes include the layer itself, each carrying its formTitle.
+func findGraphActorForLayer(ctx context.Context, layerID, auth, baseURL string) (string, error) {
 	url := fmt.Sprintf("%s/graph/linked_actors/%s", baseURL, layerID)
 	data, err := chartHTTPGet(ctx, url, auth)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	var resp struct {
-		Data []struct {
-			ID        string `json:"id"`
-			FormTitle string `json:"formTitle"`
+		Data struct {
+			Nodes []struct {
+				ID        string `json:"id"`
+				FormTitle string `json:"formTitle"`
+			} `json:"nodes"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return ""
+		return "", fmt.Errorf("parse linked actors of layer %s: %w", layerID, err)
 	}
-	for _, a := range resp.Data {
-		if a.FormTitle == "Graphs" {
-			return a.ID
+	for _, a := range resp.Data.Nodes {
+		if a.FormTitle == "Graphs" && a.ID != layerID {
+			return a.ID, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // ---- Core logic ----
@@ -200,25 +335,16 @@ func findGraphActorForLayer(ctx context.Context, layerID, auth, baseURL string) 
 // CreateChart orchestrates the full chart creation flow:
 //  1. Create ActorFilters actor (or reuse existing filterActorId).
 //  2. Create Dashboards actor with chart config.
-//  3. Place dashboard on the layer (returns laId).
-//  4. Set account inheritance (best-effort).
-//  5. Set expandType=chart on the placement.
+//  3. Place dashboard on the layer, expanded as a chart (returns laId).
+//  4. Set account inheritance (best-effort, reported in Warnings).
 func CreateChart(ctx context.Context, cfg ChartConfig, workspaceID, auth, baseURL string) (CreateChartResult, error) {
 	var result CreateChartResult
 
-	// Apply defaults
-	if cfg.ChartType == "" {
-		cfg.ChartType = "line"
+	warnings, err := normalizeChartConfig(&cfg)
+	if err != nil {
+		return result, err
 	}
-	if cfg.CounterType == "" {
-		cfg.CounterType = "amount"
-	}
-	if cfg.Range == "" {
-		cfg.Range = "lastHour"
-	}
-	if cfg.Top <= 0 {
-		cfg.Top = 20
-	}
+	result.Warnings = warnings
 
 	isActorFilterMode := len(cfg.Accounts) == 0
 
@@ -351,7 +477,7 @@ func CreateChart(ctx context.Context, cfg ChartConfig, workspaceID, auth, baseUR
 			"range":                  cfg.Range,
 			"rangeDates":             map[string]interface{}{"from": nil, "to": nil},
 			"showTotal":              true,
-			"orderValue":             "default",
+			"orderValue":             cfg.OrderValue,
 			"legend":                 map[string]interface{}{"actorTitle": true, "accountName": true, "currencyName": true},
 			"displayChartDataLabels": true,
 			"dynamicSource":          dynamicSource,
@@ -365,10 +491,6 @@ func CreateChart(ctx context.Context, cfg ChartConfig, workspaceID, auth, baseUR
 		}
 		accounts := make([]interface{}, len(cfg.Accounts))
 		for i, a := range cfg.Accounts {
-			inc := a.IncomeType
-			if inc == "" {
-				inc = "total"
-			}
 			col := a.Color
 			if col == "" {
 				col = palette[i%len(palette)]
@@ -376,7 +498,7 @@ func CreateChart(ctx context.Context, cfg ChartConfig, workspaceID, auth, baseUR
 			accounts[i] = map[string]interface{}{
 				"actorId":    a.ActorID,
 				"color":      col,
-				"incomeType": inc,
+				"incomeType": a.IncomeType,
 				"currencyId": a.CurrencyID,
 				"nameId":     a.NameID,
 			}
@@ -390,7 +512,7 @@ func CreateChart(ctx context.Context, cfg ChartConfig, workspaceID, auth, baseUR
 			"range":                  cfg.Range,
 			"rangeDates":             map[string]interface{}{"from": nil, "to": nil},
 			"showTotal":              true,
-			"orderValue":             "default",
+			"orderValue":             cfg.OrderValue,
 			"legend":                 map[string]interface{}{"actorTitle": true, "accountName": true, "currencyName": true},
 			"displayChartDataLabels": true,
 			"chartViewMode":          "default",
@@ -424,15 +546,16 @@ func CreateChart(ctx context.Context, cfg ChartConfig, workspaceID, auth, baseUR
 	dashboardActorID := dr.Data.ID
 	result.DashboardActorID = dashboardActorID
 
-	// ---- Step 5: place dashboard on the layer ----
+	// ---- Step 5: place dashboard on the layer, expanded as a chart ----
 	addToLayerURL := fmt.Sprintf("%s/graph_layers/actors/%s", baseURL, cfg.LayerID)
 	addToLayerBody := []map[string]interface{}{
 		{
 			"action": "create",
 			"data": map[string]interface{}{
-				"id":       dashboardActorID,
-				"type":     "node",
-				"position": map[string]int{"x": cfg.PositionX, "y": cfg.PositionY},
+				"id":            dashboardActorID,
+				"type":          "node",
+				"position":      map[string]int{"x": cfg.PositionX, "y": cfg.PositionY},
+				"layerSettings": newChartLayerSettings(),
 			},
 		},
 	}
@@ -459,9 +582,19 @@ func CreateChart(ctx context.Context, cfg ChartConfig, workspaceID, auth, baseUR
 	result.LaID = laID
 
 	// ---- Step 6: set account inheritance (best-effort) ----
+	// Parents are resolved once, now: a graph linked to the layer later does not
+	// retroactively become a parent.
 	parents := []string{cfg.LayerID}
-	if graphID := findGraphActorForLayer(ctx, cfg.LayerID, auth, baseURL); graphID != "" {
+	switch graphID, lookupErr := findGraphActorForLayer(ctx, cfg.LayerID, auth, baseURL); {
+	case lookupErr != nil:
+		result.Warnings = append(result.Warnings, fmt.Sprintf(
+			"could not look up the layer's graph (%v) — accounts are inherited from the layer only", lookupErr))
+	case graphID != "":
 		parents = []string{graphID, cfg.LayerID}
+	default:
+		result.Warnings = append(result.Warnings,
+			"layer is not linked to a Graphs actor — accounts are inherited from the layer only; "+
+				"link the layer to its graph (hierarchy edge graph → layer) before createChart to inherit the graph's accounts too")
 	}
 	inheritURL := fmt.Sprintf("%s/accounts/inherit/%s", baseURL, workspaceID)
 	inheritBody := map[string]interface{}{
@@ -471,22 +604,7 @@ func CreateChart(ctx context.Context, cfg ChartConfig, workspaceID, auth, baseUR
 	}
 	if _, inheritErr := chartHTTPJSON(ctx, "POST", inheritURL, auth, inheritBody); inheritErr != nil {
 		// Non-fatal: chart may still display if accounts are already accessible
-		_ = inheritErr
-	}
-
-	// ---- Step 7: mark placement as chart expand type ----
-	if laID > 0 {
-		expandURL := fmt.Sprintf("%s/graph_layers/actor_settings/%d", baseURL, laID)
-		expandBody := map[string]interface{}{
-			"layerSettings": map[string]interface{}{
-				"expandType": "chart",
-				"offset":     map[string]int{"left": 300, "right": 300, "top": 200, "bottom": 200},
-				"expand":     true,
-			},
-		}
-		if _, expandErr := chartHTTPJSON(ctx, "PUT", expandURL, auth, expandBody); expandErr != nil {
-			_ = expandErr
-		}
+		result.Warnings = append(result.Warnings, fmt.Sprintf("account inheritance failed: %v", inheritErr))
 	}
 
 	return result, nil
@@ -518,6 +636,7 @@ func handleCreateChart(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	chartType, _ := args["chartType"].(string)
 	counterType, _ := args["counterType"].(string)
 	timeRange, _ := args["range"].(string)
+	orderValue, _ := args["orderValue"].(string)
 	filterActorID, _ := args["filterActorId"].(string)
 	filterTitle, _ := args["filterTitle"].(string)
 	accountNameID, _ := args["accountNameId"].(string)
@@ -598,6 +717,7 @@ func handleCreateChart(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		ChartType:     chartType,
 		CounterType:   counterType,
 		Range:         timeRange,
+		OrderValue:    orderValue,
 		PositionX:     posX,
 		PositionY:     posY,
 		FilterActorID: filterActorID,

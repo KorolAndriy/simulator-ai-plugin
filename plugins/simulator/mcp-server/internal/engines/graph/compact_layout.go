@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -12,6 +13,18 @@ import (
 	"github.com/corezoid/simulator-ai-plugin/plugins/simulator/mcp-server/internal/engines/ecore"
 	"github.com/mark3labs/mcp-go/mcp"
 )
+
+// actorGridSize mirrors pong-server's ACTOR_SIZE: every node position is snapped
+// to this pixel grid before it is stored and before the occupied-cell check runs.
+const actorGridSize = 50
+
+// snapCoord replicates pong-server's snapGeomCoord (round to the nearest
+// ACTOR_SIZE cell). pong uses JS Math.round, which rounds halves toward +∞, so
+// we use floor(v/size + 0.5) rather than Go's math.Round (which rounds halves
+// away from zero) to agree with the server on negative coordinates.
+func snapCoord(v int) int {
+	return int(math.Floor(float64(v)/float64(actorGridSize)+0.5)) * actorGridSize
+}
 
 // compactGraphLayout repositions every placement on a layer into a tight
 // domain-clustered grid. For each "bucket" actor (one that has more than
@@ -39,6 +52,10 @@ type compactPlacement struct {
 	ActorID string `json:"actorId"`
 	LaID    int    `json:"laId"`
 	Title   string `json:"title"`
+	// X, Y are the placement's current position on the layer (raw, pre-snap),
+	// used to skip placements that are already on their computed cell.
+	X int `json:"-"`
+	Y int `json:"-"`
 }
 
 type compactEdge struct {
@@ -118,16 +135,23 @@ func handleCompactGraphLayout(ctx context.Context, req mcp.CallToolRequest) (*mc
 		}
 		var page struct {
 			Data []struct {
-				ID    string `json:"id"`
-				LaID  int    `json:"laId"`
-				Title string `json:"title"`
+				ID       string `json:"id"`
+				LaID     int    `json:"laId"`
+				Title    string `json:"title"`
+				Position struct {
+					X jsonInt `json:"x"`
+					Y jsonInt `json:"y"`
+				} `json:"position"`
 			} `json:"data"`
 		}
 		if err := json.Unmarshal(body, &page); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("[Error] parse placements: %v", err)), nil
 		}
 		for _, p := range page.Data {
-			pl := compactPlacement{ActorID: p.ID, LaID: p.LaID, Title: p.Title}
+			pl := compactPlacement{
+				ActorID: p.ID, LaID: p.LaID, Title: p.Title,
+				X: int(p.Position.X), Y: int(p.Position.Y),
+			}
 			placementsByActor[p.ID] = append(placementsByActor[p.ID], pl)
 			titleByActor[p.ID] = p.Title
 			allPlacements = append(allPlacements, pl)
@@ -309,57 +333,102 @@ func handleCompactGraphLayout(ctx context.Context, req mcp.CallToolRequest) (*mc
 	}
 	stats.LeftoverPositioned = len(leftover)
 
-	// 7) Build the position update batch — one entry per placement (not per actor).
+	// 7) Build the position updates — one entry per placement, snapped to pong's
+	// grid. Two correctness rules the server's occupied-cell check forces on us:
+	//
+	//   - Skip placements already on their computed cell. pong snaps every
+	//     incoming position and then rejects the whole request if a target cell
+	//     is occupied by a node that is NOT also moving in the same request. A
+	//     node sent to the cell it already sits on counts as occupying itself, so
+	//     including it fails the request — and makes a second identical run fail.
+	//   - Keep two placements out of the same cell within one request. pong only
+	//     checks occupancy against rows already in the DB, not duplicates inside
+	//     the request, so two placements aimed at one cell would stack silently.
+	//     Every placement of a given actor otherwise gets that actor's single
+	//     computed position; nudge the extras onto neighbouring free cells.
 	type updateItem struct {
 		ID       string         `json:"id"`
 		Position map[string]int `json:"position"`
 	}
-	items := []updateItem{}
-	for actorID, pls := range placementsByActor {
-		pos, ok := positions[actorID]
+	// occupied holds every cell already claimed. Seed it with the snapped current
+	// cells of the placements we are NOT moving, so a mover is never nudged onto a
+	// stationary node (which pong would then reject as occupied).
+	occupied := map[[2]int]bool{}
+	type pendingMove struct {
+		laID   int
+		tx, ty int // snapped target cell
+	}
+	var movers []pendingMove
+	// Deterministic order so the layout (and the tests) are stable.
+	sort.Slice(allPlacements, func(i, j int) bool { return allPlacements[i].LaID < allPlacements[j].LaID })
+	for _, pl := range allPlacements {
+		pos, ok := positions[pl.ActorID]
 		if !ok {
 			continue
 		}
-		for _, pl := range pls {
-			items = append(items, updateItem{
-				ID:       fmt.Sprintf("%d", pl.LaID),
-				Position: map[string]int{"x": pos.X, "y": pos.Y},
-			})
+		tx, ty := snapCoord(pos.X), snapCoord(pos.Y)
+		cx, cy := snapCoord(pl.X), snapCoord(pl.Y)
+		if tx == cx && ty == cy {
+			occupied[[2]int{cx, cy}] = true // already in place — reserve its cell
+			continue
 		}
+		movers = append(movers, pendingMove{laID: pl.LaID, tx: tx, ty: ty})
 	}
-	// suppress unused variable warning
-	_ = allPlacements
+	// Assign each mover a free cell, nudging off any collision (duplicate
+	// placements of one actor, or two actors that snapped to the same cell).
+	rowWidth := nodesPerRow * clustersPerRow
+	if rowWidth < 1 {
+		rowWidth = 1
+	}
+	items := make([]updateItem, 0, len(movers))
+	for _, m := range movers {
+		x, y := m.tx, m.ty
+		for step := 1; occupied[[2]int{x, y}]; step++ {
+			x = snapCoord(m.tx + (step%rowWidth)*nodeDX)
+			y = snapCoord(m.ty + (step/rowWidth)*nodeDY)
+		}
+		occupied[[2]int{x, y}] = true
+		items = append(items, updateItem{
+			ID:       fmt.Sprintf("%d", m.laID),
+			Position: map[string]int{"x": x, "y": y},
+		})
+	}
 
-	// 8) Push in chunks of 100.
-	apiPut := func(url string, body interface{}) error {
-		bodyBytes, _ := json.Marshal(body)
-		hr, _ := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
-		hr.Header.Set("Authorization", ecore.AuthHeaderForContext(ctx))
-		hr.Header.Set("Content-Type", "application/json")
-		resp, err := client.Do(hr)
-		if err != nil {
-			return err
+	// 8) Apply all placements in a single request. The schema has no maxItems,
+	// and one PUT also avoids running pong's per-request side effects (realtime
+	// publish, sendLayerChangesProcess, queueLayerToGit, coordinate transactions)
+	// once per batch. Splitting into batches is what broke it: a node moving into
+	// a cell another node vacates is fine only when both are in the same request —
+	// pong exempts an occupant that is itself moving — so a move split across
+	// batches hit "Occupied cells" and left the layer half-compacted.
+	//
+	// The body is a bare JSON array (Fastify body schema `type: array`, items
+	// validated against actorPosition) — the same contract the declarative
+	// `updateLayerPositions` tool uses via InBodyRoot. Wrapping it as
+	// {"items": [...]} is rejected with 400 "body must be array".
+	stats.PlacementsMoved = len(items)
+	if len(items) > 0 {
+		apiPut := func(url string, body interface{}) error {
+			bodyBytes, _ := json.Marshal(body)
+			hr, _ := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(bodyBytes)))
+			hr.Header.Set("Authorization", ecore.AuthHeaderForContext(ctx))
+			hr.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(hr)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			b, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode >= 300 {
+				return fmt.Errorf("HTTP %d: %.200s", resp.StatusCode, b)
+			}
+			return nil
 		}
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode >= 300 {
-			return fmt.Errorf("HTTP %d: %.200s", resp.StatusCode, b)
-		}
-		return nil
-	}
-	const batchSize = 100
-	for i := 0; i < len(items); i += batchSize {
-		end := i + batchSize
-		if end > len(items) {
-			end = len(items)
-		}
-		batch := items[i:end]
 		u := fmt.Sprintf("%s/graph_layers/actors/%s", ecore.BuildBaseURLForContext(ctx), layerID)
-		if err := apiPut(u, map[string]interface{}{"items": batch}); err != nil {
+		if err := apiPut(u, items); err != nil {
 			return mcp.NewToolResultError(
-				fmt.Sprintf("[Error] applyPositions batch %d: %v", i/batchSize, err)), nil
+				fmt.Sprintf("[Error] applyPositions: %v", err)), nil
 		}
-		stats.PlacementsMoved += len(batch)
 	}
 
 	out, _ := json.Marshal(stats)

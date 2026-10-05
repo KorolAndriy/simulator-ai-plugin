@@ -56,6 +56,74 @@
 ## [2.9.1]
 
 ### Added
+- Directory-readiness for the public plugin catalogs: root `plugin.json` in the
+  Agent Plugins 1.0.0 format (required by Kiro's Powers registry and accepted by
+  OpenAI's plugin portal), `supportURL`/`privacyPolicyURL`/`termsOfServiceURL`
+  in the Codex interface block, brand icons under `plugins/simulator/assets/`,
+  and a README "Support & Legal" section. The root manifest joins the version
+  lockstep (now seven files; `scripts/release.sh` bumps it automatically).
+
+### Fixed
+- `claude plugin validate --strict` passes again: the non-standard `interface`
+  block moved out of `.claude-plugin/plugin.json` (it lives in the Codex
+  manifest, which is the host that reads it).
+
+## [2.9.1]
+
+### Fixed
+- simulationSnapshot wrote numbers in actor `data` (and `formId`, positions, `sim.source`) to the graph
+  file as YAML strings, so a run from the saved file read them as text: `self.price + self.cost` gave
+  `"1020"` instead of `30` and `count(price=10)` found nothing, with status `completed`. Numbers are
+  now written as YAML numbers; strings such as `"10"` stay strings. A snapshot file written by 2.9.0
+  stays wrong: simulationCheck / simulationRun now warn about it — re-take it with
+  `simulationSnapshot(layerId, overwrite: true)`. simulationRun now returns the check's `warnings`.
+- simulationRun many-run mode counted runs stopped before the horizon (`stopped_by_time`,
+  `stopped_by_limit`) as successful: their partial metrics fed the statistics and goal shares, and the
+  table showed them as ok. Metrics and goals are now over completed runs only; the table shows
+  `completed/total (N stopped, M failed)`, the reason a run stopped is listed under the table, and a
+  goal no completed run could evaluate shows `no data` instead of dropping its column.
+- Opening the first account of a conserved type at 0 (e.g. `create … accounts: [{name: cash,
+  value_type: USD}]` when the graph has no USD account) failed the step with `conserved totals changed
+  within step:`. A type with no account now counts as total 0.
+- The Release workflow published a tag without running the tests (only the binaries build was
+  required); it now runs build / vet / test first and publishes only if they pass.
+
+## [2.9.0]
+
+### Added
+- behaviour simulation engine (simulationRun / simulationCheck / simulationSnapshot) (#111)
+
+### Changed
+- reactionOrders is optional; executors without an order still close the task (#117)
+- bump github.com/mark3labs/mcp-go from 0.58.0 to 1.1.0 (#114)
+- document the page-level focusVisible flag (#112)
+- document the page-level browser tab title (#106)
+
+### Fixed
+- read layer pages until an empty one, not a short one (#115)
+- make MCP startup work in Codex (#81)
+- place pushGraphFile edges without a position, send data on create (#110)
+
+## [2.8.0]
+
+### Added
+- authenticate with a workspace API key via SIMULATOR_API_SECRET (#103)
+- simulator-app-generator (#100)
+
+### Changed
+- make design quality an explicit deliverable (#104)
+- bump mcp-go from 0.57.0 to 0.58.0 (#96)
+
+### Fixed
+- address bug-finder issues #87, #88, #89 (#102)
+- recognize bare top-level style file as text/css in pushSmartForm (#97)
+- carry the page query through appGetPage / appSendForm (#98)
+- allow visibility placeholders (#95)
+- catch on push what only the browser caught before (#99)
+
+## [2.9.1]
+
+### Added
 - Behaviour simulation engine (`internal/engines/sim`) with the `simulationCheck`, `simulationRun` and
   `simulationSnapshot` tools and the `simulator-simulate` skill: YAML behaviour rules over any layer,
   exact decimal accounts with conserved types, a discrete-event queue in model time, scenario comparison,
@@ -64,6 +132,32 @@
   engine reproduces the reference engine's answers on the conformance cases (`TestConformance`).
 
 ### Fixed
+- simulationSnapshot wrote numbers in actor `data` (and `formId`, positions, `sim.source`) to the graph
+  file as YAML strings, so a run from the saved file read them as text: `self.price + self.cost` gave
+  `"1020"` instead of `30` and `count(price=10)` found nothing, with status `completed`. Numbers are
+  now written as YAML numbers; strings such as `"10"` stay strings. A snapshot file written by 2.9.0
+  stays wrong: simulationCheck / simulationRun now warn about it — re-take it with
+  `simulationSnapshot(layerId, overwrite: true)`. simulationRun now returns the check's `warnings`.
+- simulationRun many-run mode counted runs stopped before the horizon (`stopped_by_time`,
+  `stopped_by_limit`) as successful: their partial metrics fed the statistics and goal shares, and the
+  table showed them as ok. Metrics and goals are now over completed runs only; the table shows
+  `completed/total (N stopped, M failed)`, the reason a run stopped is listed under the table, and a
+  goal no completed run could evaluate shows `no data` instead of dropping its column.
+- Opening the first account of a conserved type at 0 (e.g. `create … accounts: [{name: cash,
+  value_type: USD}]` when the graph has no USD account) failed the step with `conserved totals changed
+  within step:`. A type with no account now counts as total 0.
+- The Release workflow published a tag without running the tests (only the binaries build was
+  required); it now runs build / vet / test first and publishes only if they pass.
+- [CE-15944] Layer position updates (`compactGraphLayout`, `updateLayerPositions`, pushGraphFile) sent
+  the `PUT /graph_layers/actors` body as `{"items":[…]}`, which the server rejects with 400
+  `body must be array` — surfaced by compactGraphLayout as `applyPositions batch 0`, and swallowed as a
+  log-only warning on the push path so positions silently never reached the canvas. The body is now a
+  bare JSON array. compactGraphLayout additionally: sends all placements in one request (100-item
+  batches conflicted at batch boundaries via the occupied-cell check and left the layer
+  half-compacted), skips placements already on their computed cell (so a repeat run no longer fails),
+  and de-collides multiple placements of the same actor. pushGraphFile compares coordinates on the
+  50px grid so snap-adjusted nodes are not resent, and now reports position-update failures in its
+  result (`warnings`) instead of only logging them.
 - pushGraphFile: edges were placed with a position `{x:0,y:0}`, which the server treats as a grid
   cell, so every push with more than one new edge failed with `Occupied cells: (A, 1)`. Edge
   placements are now sent without a position.

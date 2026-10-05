@@ -295,11 +295,14 @@ func TestConcurrentWorkspaceAccess(t *testing.T) {
 }
 
 // TestCreateActorResolvesFormName verifies createActor accepts a friendly form
-// name, looks it up, and POSTs to the resolved numeric formId.
+// name, looks it up, and POSTs to the resolved numeric formId. The lookup must
+// ask for formTypes=all, or system forms such as "Layers" are never listed
+// (issue #109).
 func TestCreateActorResolvesFormName(t *testing.T) {
-	var actorPath string
+	var actorPath, formTypes string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/forms/templates/") {
+			formTypes = r.URL.Query().Get("formTypes")
 			_, _ = w.Write([]byte(`{"data":[{"id":5,"title":"Task"},{"id":334704,"title":"Car"}]}`))
 			return
 		}
@@ -316,6 +319,45 @@ func TestCreateActorResolvesFormName(t *testing.T) {
 	}
 	if actorPath != "/actors/actor/334704" {
 		t.Errorf("actor POST path = %q, want /actors/actor/334704 (formName resolved)", actorPath)
+	}
+	if formTypes != "all" {
+		t.Errorf("form lookup formTypes = %q, want all (system forms included)", formTypes)
+	}
+}
+
+// TestCreateActorFormNameCache verifies repeated formName lookups reuse the
+// workspace's title→id map, while a title missing from it (a form created
+// mid-session) triggers a refetch instead of a stale "not found".
+func TestCreateActorFormNameCache(t *testing.T) {
+	var listCalls int
+	forms := `{"data":[{"id":334704,"title":"Car"}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/forms/templates/") {
+			listCalls++
+			_, _ = w.Write([]byte(forms))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := apiclient.New(srv.URL, "WS", func() (string, error) { return "t", nil }, false)
+	op := opByName(t, "createActor")
+
+	for i := 0; i < 2; i++ {
+		if res := call(t, c, op, map[string]any{"formName": "Car", "data": map[string]any{}}); res.IsError {
+			t.Fatalf("unexpected error: %+v", res.Content)
+		}
+	}
+	if listCalls != 1 {
+		t.Errorf("form list fetched %d times for two lookups, want 1 (cached)", listCalls)
+	}
+
+	forms = `{"data":[{"id":334704,"title":"Car"},{"id":9,"title":"Truck"}]}`
+	if res := call(t, c, op, map[string]any{"formName": "Truck", "data": map[string]any{}}); res.IsError {
+		t.Fatalf("new form not resolved after a cache miss: %+v", res.Content)
+	}
+	if listCalls != 2 {
+		t.Errorf("form list fetched %d times, want 2 (miss refetches)", listCalls)
 	}
 }
 
