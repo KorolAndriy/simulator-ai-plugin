@@ -10,6 +10,17 @@
   token; 404 otherwise).
 
 ### Fixed
+- createActor / updateActor could silently build a Dashboards (chart) actor by hand-writing `data.source`,
+  bypassing createChart — the actor passed getActor but rendered "Something went wrong" in the UI because it
+  lacked the companion ActorFilters actor, the layer expand (`expandType:"chart"`) and account inheritance
+  that only createChart sets up. createActor now refuses to create a Dashboards-form actor, and updateActor
+  refuses to turn an actor *into* a chart by hand — while still allowing edits to a chart createChart already
+  created (the only way to edit one, as there is no updateChart tool). Both steer the caller to createChart /
+  the `/simulator-charts` skill. The Dashboards form is resolved by title per workspace (not a hardcoded id);
+  the guards fail open if it cannot be resolved so a transient forms-list failure never blocks a legitimate
+  write. NOTE: hand-editing an *already-valid* chart's `data.source` into a newly-invalid config via
+  updateActor is still possible — closing that needs a dedicated `updateChart` tool that runs createChart's
+  `normalizeChartConfig` validation (follow-up).
 - Hosted mode: engine tools that took the workspace from the connection only
   (`uploadActorPicture`, `uploadActorPictureBulk`, `createChart`, `exportGraph`, `importGraph`,
   `uploadGraphFile`, `getTaskStatus`) failed with "WORKSPACE_ID is not set" on the bare `/mcp`

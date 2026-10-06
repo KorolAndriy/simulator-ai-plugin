@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,22 +37,49 @@ func resolveActorFormID(ctx context.Context, args map[string]any, c *apiclient.C
 	if name == "" {
 		return nil // neither given — the path check reports the missing formId
 	}
+	// refetchOnMiss: a custom form may have been created mid-session, so a fresh
+	// cache that lacks this name still refetches once.
+	id, ok, err := formIDByTitle(ctx, c, name, true)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("form %q not found in the active workspace", name)
+	}
+	args["formId"] = float64(id) // JSON-number arg type, like the model would send
+	return nil
+}
+
+// formIDByTitle resolves a form title to its numeric id in the active workspace,
+// reusing formTitleCache (keyed by base URL + workspace, bounded by
+// formTitleCacheTTL). With refetchOnMiss, a fresh cache that lacks the title is
+// refetched once (so a form created mid-session resolves); without it, a fresh
+// cache is trusted even on a miss (so repeated lookups of a title that does not
+// exist — e.g. a workspace with no "Dashboards" form — do not refetch every call).
+// Returns ok=false with a nil error when the title does not exist; an error only
+// when there is no workspace or the forms list cannot be fetched/parsed.
+func formIDByTitle(ctx context.Context, c *apiclient.Client, title string, refetchOnMiss bool) (int, bool, error) {
 	accID := c.WorkspaceIDForContext(ctx)
 	if accID == "" {
-		return fmt.Errorf("resolving formName needs a workspace — run set-workspace or pass formId")
+		return 0, false, fmt.Errorf("resolving a form by name needs an active workspace — run set-workspace or pass formId")
 	}
 	key := c.BaseURL() + "|" + accID
 	if v, ok := formTitleCache.Load(key); ok {
 		cached := v.(formTitleIDs)
-		if id, ok := cached.ids[name]; ok && time.Since(cached.fetched) < formTitleCacheTTL {
-			args["formId"] = float64(id) // JSON-number arg type, like the model would send
-			return nil
+		if time.Since(cached.fetched) < formTitleCacheTTL {
+			if id, ok := cached.ids[title]; ok {
+				return id, true, nil
+			}
+			if !refetchOnMiss {
+				return 0, false, nil
+			}
 		}
 	}
 
 	// formTypes=all: without it the endpoint lists only custom templates (so a
-	// system form such as "Layers" is never found) and only its first 20.
-	// Custom forms sort first, so a custom form wins over a same-titled system one.
+	// system form such as "Layers"/"Dashboards" is never found) and only its
+	// first 20. Custom forms sort first, so a custom form wins over a same-titled
+	// system one.
 	q := url.Values{}
 	q.Set("formTypes", "all")
 	q.Set("withDefault", "false")
@@ -58,7 +87,7 @@ func resolveActorFormID(ctx context.Context, args map[string]any, c *apiclient.C
 	q.Set("limit", "1000")
 	resp, err := c.Do(ctx, "GET", "/forms/templates/"+accID, q, nil)
 	if err != nil {
-		return fmt.Errorf("list forms to resolve %q: %w", name, err)
+		return 0, false, fmt.Errorf("list forms to resolve %q: %w", title, err)
 	}
 	var out struct {
 		Data []struct {
@@ -67,7 +96,7 @@ func resolveActorFormID(ctx context.Context, args map[string]any, c *apiclient.C
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(resp, &out); err != nil {
-		return fmt.Errorf("parse forms list: %w", err)
+		return 0, false, fmt.Errorf("parse forms list: %w", err)
 	}
 	ids := make(map[string]int, len(out.Data))
 	for _, f := range out.Data {
@@ -76,11 +105,10 @@ func resolveActorFormID(ctx context.Context, args map[string]any, c *apiclient.C
 		}
 	}
 	formTitleCache.Store(key, formTitleIDs{ids: ids, fetched: time.Now()})
-	if id, ok := ids[name]; ok {
-		args["formId"] = float64(id) // JSON-number arg type, like the model would send
-		return nil
+	if id, ok := ids[title]; ok {
+		return id, true, nil
 	}
-	return fmt.Errorf("form %q not found in the active workspace", name)
+	return 0, false, nil
 }
 
 // actorDataDesc documents the actor `data` payload. Actor data is keyed by each
@@ -133,7 +161,7 @@ var actorOps = []Operation{
 		Name: "createActor", Method: "POST", Path: "/actors/actor/{formId}",
 		Summary: "Create an actor (graph node) of a given form. Pass `formId` (number) or `formName` (resolved to its id). `data` holds the field values keyed by the form's schema. " +
 			"In a UAT (form-tree) workspace the formId must be the ROOT form of the tree: if the requested form has a non-empty parentId (a leaf/child form), creating directly under it returns \"400: Form <id> is not UAT\" — walk up parentId to the root, create under the root, and put the leaf form's fields under \"__form__<leafFormId>:<itemId>\" data keys.",
-		Resolve: resolveActorFormID,
+		Resolve: guardActorCreate,
 		Params: []Param{
 			{Name: "formId", In: InPath, Type: "number", Desc: "Form id this actor instantiates. Provide formId or formName."},
 			{Name: "formName", In: InLocal, Type: "string", Desc: "Form name — resolved to its id via the active workspace. Provide formId or formName."},
@@ -178,6 +206,7 @@ var actorOps = []Operation{
 	{
 		Name: "updateActor", Method: "PUT", Path: "/actors/actor/{formId}/{actorId}",
 		Summary: "Update an actor's fields/metadata. Only the provided fields change.",
+		Resolve: guardActorUpdate,
 		Params: []Param{
 			{Name: "formId", In: InPath, Type: "number", Required: true, Desc: "Form id the actor belongs to."},
 			{Name: "actorId", In: InPath, Type: "string", Required: true, Desc: "Actor UUID."},
@@ -312,4 +341,125 @@ func requireActorUUID(_ context.Context, args map[string]any, _ *apiclient.Clien
 		return fmt.Errorf("actorId %q is not a full actor UUID (36 chars, 8-4-4-4-12) — the backend would answer a misleading 403 Access Denied for it. Pass the complete UUID, or resolve the actor by its external key with getActorByRef(formId, ref)", id)
 	}
 	return nil
+}
+
+// dashboardsFormTitle is the system form whose actors are charts/dashboards. A
+// Dashboards actor only renders if createChart built it: createChart also creates
+// the companion ActorFilters actor, places the actor on the layer expanded as a
+// chart (expandType:"chart") and sets account inheritance. A hand-written
+// data.source is stored without error but renders "Something went wrong" in the
+// UI, so createActor/updateActor refuse to manufacture one by hand — see
+// internal/engines/graph/chart.go (CreateChart).
+const dashboardsFormTitle = "Dashboards"
+
+// dashboardsManualBuildHint is the shared remediation appended to both guards.
+const dashboardsManualBuildHint = "A Dashboards (chart) actor must be created with the createChart tool " +
+	"(or the /simulator-charts skill): only createChart builds the companion ActorFilters actor, places the " +
+	"actor on its layer expanded as a chart (expandType:\"chart\") and sets account inheritance. A hand-written " +
+	"data.source is stored without error but renders \"Something went wrong\" in the UI."
+
+// guardActorCreate resolves formName→formId (resolveActorFormID) and then refuses
+// to create a Dashboards actor by hand — that is createChart's job. It fails open
+// (allows the create) when the Dashboards form cannot be resolved, so a transient
+// forms-list failure never blocks a legitimate create.
+func guardActorCreate(ctx context.Context, args map[string]any, c *apiclient.Client) error {
+	if err := resolveActorFormID(ctx, args, c); err != nil {
+		return err
+	}
+	formID, ok := asInt(args["formId"])
+	if !ok {
+		return nil // no/invalid formId — the path check reports it
+	}
+	dashID, found, err := formIDByTitle(ctx, c, dashboardsFormTitle, false)
+	if err != nil || !found {
+		return nil // can't resolve the Dashboards form — fail open
+	}
+	if formID == dashID {
+		return fmt.Errorf("createActor cannot build a Dashboards actor by hand. %s", dashboardsManualBuildHint)
+	}
+	return nil
+}
+
+// guardActorUpdate refuses to turn an actor INTO a Dashboards chart by hand, while
+// still allowing edits to a chart createChart already created — the only way to
+// edit a chart, as there is no updateChart tool. It blocks only when the target
+// form is Dashboards AND the actor is not already a dashboard carrying a
+// data.source; everything else (ordinary actors, and real charts) passes. It
+// fails open whenever the form or the current actor cannot be read.
+func guardActorUpdate(ctx context.Context, args map[string]any, c *apiclient.Client) error {
+	formID, ok := asInt(args["formId"])
+	if !ok {
+		return nil // no/invalid formId — the required-param check reports it
+	}
+	dashID, found, err := formIDByTitle(ctx, c, dashboardsFormTitle, false)
+	if err != nil || !found {
+		return nil // can't resolve the Dashboards form — fail open
+	}
+	if formID != dashID {
+		return nil // not a Dashboards actor — nothing to guard
+	}
+	actorID, _ := args["actorId"].(string)
+	if actorID == "" {
+		return nil // the required-param check reports the missing actorId
+	}
+	wasDashboard, err := actorIsDashboard(ctx, c, actorID, dashID)
+	if err != nil {
+		return nil // couldn't read the current actor — fail open rather than block an edit
+	}
+	if wasDashboard {
+		return nil // editing an existing chart (title/description or its data.source) is allowed
+	}
+	return fmt.Errorf("updateActor cannot turn this actor into a Dashboards chart by hand. %s", dashboardsManualBuildHint)
+}
+
+// actorIsDashboard reports whether the actor already is a Dashboards-form actor
+// carrying a non-empty data.source — i.e. a chart createChart (or an earlier
+// create) already produced, which updateActor may edit.
+func actorIsDashboard(ctx context.Context, c *apiclient.Client, actorID string, dashID int) (bool, error) {
+	q := url.Values{}
+	q.Set("filter", "formId,data")
+	resp, err := c.Do(ctx, "GET", "/actors/"+actorID, q, nil)
+	if err != nil {
+		return false, err
+	}
+	var out struct {
+		Data struct {
+			FormID int                        `json:"formId"`
+			Data   map[string]json.RawMessage `json:"data"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(resp, &out); err != nil {
+		return false, err
+	}
+	if out.Data.FormID != dashID {
+		return false, nil
+	}
+	raw, ok := out.Data.Data["source"]
+	if !ok {
+		return false, nil
+	}
+	s := strings.TrimSpace(string(raw))
+	// data.source is stored as a JSON string; treat null / "" / {} as absent.
+	return s != "" && s != "null" && s != `""` && s != "{}", nil
+}
+
+// asInt coerces a formId-style arg (JSON number, int, or numeric string) to int.
+func asInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int(n), true
+	case int:
+		return n, true
+	case int64:
+		return int(n), true
+	case json.Number:
+		if i, err := n.Int64(); err == nil {
+			return int(i), true
+		}
+	case string:
+		if i, err := strconv.Atoi(strings.TrimSpace(n)); err == nil {
+			return i, true
+		}
+	}
+	return 0, false
 }
