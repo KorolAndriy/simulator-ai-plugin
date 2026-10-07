@@ -37,9 +37,7 @@ func resolveActorFormID(ctx context.Context, args map[string]any, c *apiclient.C
 	if name == "" {
 		return nil // neither given — the path check reports the missing formId
 	}
-	// refetchOnMiss: a custom form may have been created mid-session, so a fresh
-	// cache that lacks this name still refetches once.
-	id, ok, err := formIDByTitle(ctx, c, name, true)
+	id, ok, err := formIDByTitle(ctx, c, name)
 	if err != nil {
 		return err
 	}
@@ -52,13 +50,13 @@ func resolveActorFormID(ctx context.Context, args map[string]any, c *apiclient.C
 
 // formIDByTitle resolves a form title to its numeric id in the active workspace,
 // reusing formTitleCache (keyed by base URL + workspace, bounded by
-// formTitleCacheTTL). With refetchOnMiss, a fresh cache that lacks the title is
-// refetched once (so a form created mid-session resolves); without it, a fresh
-// cache is trusted even on a miss (so repeated lookups of a title that does not
-// exist — e.g. a workspace with no "Dashboards" form — do not refetch every call).
-// Returns ok=false with a nil error when the title does not exist; an error only
-// when there is no workspace or the forms list cannot be fetched/parsed.
-func formIDByTitle(ctx context.Context, c *apiclient.Client, title string, refetchOnMiss bool) (int, bool, error) {
+// formTitleCacheTTL). A fresh cache that lacks the title is refetched once, so a
+// form created mid-session resolves. Returns ok=false with a nil error when the
+// title does not exist; an error only when there is no workspace or the forms
+// list cannot be fetched/parsed. Used only by resolveActorFormID (formName →
+// formId); the Dashboards guards resolve the target form by id via
+// isDashboardForm, which needs no workspace and cannot collide on title.
+func formIDByTitle(ctx context.Context, c *apiclient.Client, title string) (int, bool, error) {
 	accID := c.WorkspaceIDForContext(ctx)
 	if accID == "" {
 		return 0, false, fmt.Errorf("resolving a form by name needs an active workspace — run set-workspace or pass formId")
@@ -66,13 +64,8 @@ func formIDByTitle(ctx context.Context, c *apiclient.Client, title string, refet
 	key := c.BaseURL() + "|" + accID
 	if v, ok := formTitleCache.Load(key); ok {
 		cached := v.(formTitleIDs)
-		if time.Since(cached.fetched) < formTitleCacheTTL {
-			if id, ok := cached.ids[title]; ok {
-				return id, true, nil
-			}
-			if !refetchOnMiss {
-				return 0, false, nil
-			}
+		if id, ok := cached.ids[title]; ok && time.Since(cached.fetched) < formTitleCacheTTL {
+			return id, true, nil
 		}
 	}
 
@@ -350,18 +343,58 @@ func requireActorUUID(_ context.Context, args map[string]any, _ *apiclient.Clien
 // data.source is stored without error but renders "Something went wrong" in the
 // UI, so createActor/updateActor refuse to manufacture one by hand — see
 // internal/engines/graph/chart.go (CreateChart).
+//
+// NOTE (scope): these guards close the plugin's own write paths (createActor,
+// updateActor, and pushGraphFile). The backend still accepts a hand-built
+// dashboards actor from any other client (public /papi API, Corezoid processes,
+// sim-api), so the real fix is server-side validation in createActorReq/
+// validateActor — tracked as a CE-15957 follow-up alongside an updateChart tool.
 const dashboardsFormTitle = "Dashboards"
 
-// dashboardsManualBuildHint is the shared remediation appended to both guards.
+// dashboardsManualBuildHint is the shared remediation appended to the guards.
 const dashboardsManualBuildHint = "A Dashboards (chart) actor must be created with the createChart tool " +
 	"(or the /simulator-charts skill): only createChart builds the companion ActorFilters actor, places the " +
 	"actor on its layer expanded as a chart (expandType:\"chart\") and sets account inheritance. A hand-written " +
 	"data.source is stored without error but renders \"Something went wrong\" in the UI."
 
+// dashboardFormCache memoizes, per form id, whether that form is the Dashboards
+// system form. A form's type and title do not change, so the entry is cached for
+// the process lifetime (no TTL) and keyed by formId alone — not by workspace,
+// since GET /forms/{formId} resolves the form by its own id.
+var dashboardFormCache sync.Map // int (formId) → bool
+
+// isDashboardForm reports whether formID is the Dashboards *system* form, matching
+// the backend's own rule (pong-server getSystemForms: type == "system" and a
+// case-insensitive title match on "dashboards"). It resolves the target form by
+// its id — GET /forms/{formId} needs no active workspace and cannot be fooled by a
+// custom form that merely shares the title. ok is false (nil error) when the form
+// cannot be resolved, so the guards fail open rather than block a legitimate write.
+func isDashboardForm(ctx context.Context, c *apiclient.Client, formID int) (bool, error) {
+	if v, ok := dashboardFormCache.Load(formID); ok {
+		return v.(bool), nil
+	}
+	resp, err := c.Do(ctx, "GET", fmt.Sprintf("/forms/%d", formID), nil, nil)
+	if err != nil {
+		return false, err
+	}
+	var out struct {
+		Data struct {
+			Type  string `json:"type"`
+			Title string `json:"title"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(resp, &out); err != nil {
+		return false, err
+	}
+	isDash := out.Data.Type == "system" && strings.EqualFold(out.Data.Title, dashboardsFormTitle)
+	dashboardFormCache.Store(formID, isDash)
+	return isDash, nil
+}
+
 // guardActorCreate resolves formName→formId (resolveActorFormID) and then refuses
 // to create a Dashboards actor by hand — that is createChart's job. It fails open
 // (allows the create) when the Dashboards form cannot be resolved, so a transient
-// forms-list failure never blocks a legitimate create.
+// lookup failure never blocks a legitimate create.
 func guardActorCreate(ctx context.Context, args map[string]any, c *apiclient.Client) error {
 	if err := resolveActorFormID(ctx, args, c); err != nil {
 		return err
@@ -370,77 +403,88 @@ func guardActorCreate(ctx context.Context, args map[string]any, c *apiclient.Cli
 	if !ok {
 		return nil // no/invalid formId — the path check reports it
 	}
-	dashID, found, err := formIDByTitle(ctx, c, dashboardsFormTitle, false)
-	if err != nil || !found {
-		return nil // can't resolve the Dashboards form — fail open
+	isDash, err := isDashboardForm(ctx, c, formID)
+	if err != nil {
+		return nil // can't resolve the form — fail open
 	}
-	if formID == dashID {
+	if isDash {
 		return fmt.Errorf("createActor cannot build a Dashboards actor by hand. %s", dashboardsManualBuildHint)
 	}
 	return nil
 }
 
-// guardActorUpdate refuses to turn an actor INTO a Dashboards chart by hand, while
-// still allowing edits to a chart createChart already created — the only way to
-// edit a chart, as there is no updateChart tool. It blocks only when the target
-// form is Dashboards AND the actor is not already a dashboard carrying a
-// data.source; everything else (ordinary actors, and real charts) passes. It
-// fails open whenever the form or the current actor cannot be read.
+// guardActorUpdate blocks an update that would HAND-WRITE a chart: it fires only
+// when the target form is the Dashboards system form AND the update carries a
+// non-empty data.source. Metadata-only edits (title, description, status, …) and
+// clearing the source are allowed on any Dashboards actor — so a legacy or broken
+// dashboard stays manageable instead of being permanently frozen. It intentionally
+// does not read the actor's current state: there is no reliable actor-local marker
+// that tells a createChart chart from a hand-built one (direct-accounts charts have
+// no ActorFilters actor), so the guard gates the *action* (writing a source), not a
+// guess about the actor. Editing a real chart's config by hand is likewise blocked;
+// the sanctioned path is the createChart/updateChart tooling. Fails open if the
+// form cannot be resolved.
 func guardActorUpdate(ctx context.Context, args map[string]any, c *apiclient.Client) error {
 	formID, ok := asInt(args["formId"])
 	if !ok {
 		return nil // no/invalid formId — the required-param check reports it
 	}
-	dashID, found, err := formIDByTitle(ctx, c, dashboardsFormTitle, false)
-	if err != nil || !found {
-		return nil // can't resolve the Dashboards form — fail open
+	if !writesNonEmptySource(args["data"]) {
+		return nil // metadata-only edit or source-clear — never manufactures a chart
 	}
-	if formID != dashID {
-		return nil // not a Dashboards actor — nothing to guard
-	}
-	actorID, _ := args["actorId"].(string)
-	if actorID == "" {
-		return nil // the required-param check reports the missing actorId
-	}
-	wasDashboard, err := actorIsDashboard(ctx, c, actorID, dashID)
+	isDash, err := isDashboardForm(ctx, c, formID)
 	if err != nil {
-		return nil // couldn't read the current actor — fail open rather than block an edit
+		return nil // can't resolve the form — fail open
 	}
-	if wasDashboard {
-		return nil // editing an existing chart (title/description or its data.source) is allowed
+	if isDash {
+		return fmt.Errorf("updateActor cannot hand-write a Dashboards chart's data.source. %s", dashboardsManualBuildHint)
 	}
-	return fmt.Errorf("updateActor cannot turn this actor into a Dashboards chart by hand. %s", dashboardsManualBuildHint)
+	return nil
 }
 
-// actorIsDashboard reports whether the actor already is a Dashboards-form actor
-// carrying a non-empty data.source — i.e. a chart createChart (or an earlier
-// create) already produced, which updateActor may edit.
-func actorIsDashboard(ctx context.Context, c *apiclient.Client, actorID string, dashID int) (bool, error) {
-	q := url.Values{}
-	q.Set("filter", "formId,data")
-	resp, err := c.Do(ctx, "GET", "/actors/"+actorID, q, nil)
-	if err != nil {
-		return false, err
-	}
-	var out struct {
-		Data struct {
-			FormID int                        `json:"formId"`
-			Data   map[string]json.RawMessage `json:"data"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(resp, &out); err != nil {
-		return false, err
-	}
-	if out.Data.FormID != dashID {
-		return false, nil
-	}
-	raw, ok := out.Data.Data["source"]
+// writesNonEmptySource reports whether an updateActor `data` payload sets
+// data.source to a value with real content. Null, "", "{}", "[]", "   " (and the
+// JSON-string forms createChart uses, e.g. the literal "\"{}\"") all count as
+// empty — clearing the source, which is allowed. Anything else counts as writing
+// a chart config.
+func writesNonEmptySource(data any) bool {
+	m, ok := data.(map[string]any)
 	if !ok {
-		return false, nil
+		return false
 	}
-	s := strings.TrimSpace(string(raw))
-	// data.source is stored as a JSON string; treat null / "" / {} as absent.
-	return s != "" && s != "null" && s != `""` && s != "{}", nil
+	src, present := m["source"]
+	if !present {
+		return false
+	}
+	return valueHasContent(src)
+}
+
+// valueHasContent reports whether v carries meaningful chart config. A string is
+// unwrapped (createChart stores data.source as a JSON string) and its inner value
+// re-tested; empty strings, nulls and empty objects/arrays are "no content".
+func valueHasContent(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return false
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return false
+		}
+		var inner any
+		if json.Unmarshal([]byte(s), &inner) == nil {
+			// Parsed JSON (object/array/null/""): judge by the inner value so a
+			// wrapped "{}" or "\"\"" reads as empty, not as content.
+			return valueHasContent(inner)
+		}
+		return true // non-JSON, non-blank text
+	case map[string]any:
+		return len(t) > 0
+	case []any:
+		return len(t) > 0
+	default:
+		return true // number, bool, etc.
+	}
 }
 
 // asInt coerces a formId-style arg (JSON number, int, or numeric string) to int.
