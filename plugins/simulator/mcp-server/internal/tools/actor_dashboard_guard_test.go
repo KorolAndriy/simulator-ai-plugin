@@ -12,14 +12,10 @@ import (
 )
 
 // guardClient builds a client pointed at a mock backend. Each mock gets a unique
-// httptest URL, so the package-global caches (formTitleCache, dashboardFormCache)
-// never leak between subtests — dashboardFormCache is keyed by formId, so tests
-// must use distinct formIds to avoid cross-test cache hits.
+// httptest URL, and both package-global caches (formTitleCache,
+// dashboardFormCache) are keyed by base URL, so entries never leak between tests.
 func guardClient(t *testing.T, h http.HandlerFunc) *apiclient.Client {
 	t.Helper()
-	// dashboardFormCache is keyed by formId (not by base URL), so it would leak
-	// between subtests that reuse an id — clear it for a clean slate each time.
-	dashboardFormCache.Clear()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	return apiclient.New(srv.URL, "WS", func() (string, error) { return "t", nil }, false)
@@ -101,6 +97,23 @@ func TestGuardActorCreate_FailsOpenWhenFormUnreadable(t *testing.T) {
 	c := guardClient(t, formHandler(nil, nil, 243)) // GET /forms/243 -> 500
 	if err := guardActorCreate(context.Background(), map[string]any{"formId": float64(243), "data": map[string]any{}}, c); err != nil {
 		t.Fatalf("unresolvable form must fail open, got: %v", err)
+	}
+}
+
+// The same formId names different forms on different backends (dev/pre/prod keep
+// separate id sequences), so a cached verdict must not survive set-environment.
+func TestGuardActorCreate_CacheKeyedByBaseURL(t *testing.T) {
+	c := guardClient(t, formHandler(map[int][2]string{243: {"system", "Dashboards"}}, nil, 0))
+	args := func() map[string]any { return map[string]any{"formId": float64(243), "data": map[string]any{}} }
+	if err := guardActorCreate(context.Background(), args(), c); err == nil {
+		t.Fatal("expected Dashboards create blocked on the first backend")
+	}
+
+	other := httptest.NewServer(formHandler(map[int][2]string{243: {"custom", "Clients"}}, nil, 0))
+	t.Cleanup(other.Close)
+	c.SetBaseURL(other.URL) // what set-environment does
+	if err := guardActorCreate(context.Background(), args(), c); err != nil {
+		t.Fatalf("formId 243 is an ordinary form on the second backend, must pass, got: %v", err)
 	}
 }
 

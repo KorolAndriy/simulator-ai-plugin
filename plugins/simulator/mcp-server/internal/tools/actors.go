@@ -357,11 +357,13 @@ const dashboardsManualBuildHint = "A Dashboards (chart) actor must be created wi
 	"actor on its layer expanded as a chart (expandType:\"chart\") and sets account inheritance. A hand-written " +
 	"data.source is stored without error but renders \"Something went wrong\" in the UI."
 
-// dashboardFormCache memoizes, per form id, whether that form is the Dashboards
-// system form. A form's type and title do not change, so the entry is cached for
-// the process lifetime (no TTL) and keyed by formId alone — not by workspace,
-// since GET /forms/{formId} resolves the form by its own id.
-var dashboardFormCache sync.Map // int (formId) → bool
+// dashboardFormCache memoizes, per API base URL + form id, whether that form is
+// the Dashboards system form. A form's type and title do not change, so the entry
+// is cached for the process lifetime (no TTL). The key needs no workspace (GET
+// /forms/{formId} resolves the form by its own id) but must carry the base URL:
+// form ids are only unique within one backend database, so after set-environment
+// the same id can name a different form.
+var dashboardFormCache sync.Map // string (baseURL|formId) → bool
 
 // isDashboardForm reports whether formID is the Dashboards *system* form, matching
 // the backend's own rule (pong-server getSystemForms: type == "system" and a
@@ -370,10 +372,13 @@ var dashboardFormCache sync.Map // int (formId) → bool
 // custom form that merely shares the title. ok is false (nil error) when the form
 // cannot be resolved, so the guards fail open rather than block a legitimate write.
 func isDashboardForm(ctx context.Context, c *apiclient.Client, formID int) (bool, error) {
-	if v, ok := dashboardFormCache.Load(formID); ok {
+	key := c.BaseURL() + "|" + strconv.Itoa(formID)
+	if v, ok := dashboardFormCache.Load(key); ok {
 		return v.(bool), nil
 	}
-	resp, err := c.Do(ctx, "GET", fmt.Sprintf("/forms/%d", formID), nil, nil)
+	q := url.Values{}
+	q.Set("filter", "type,title")
+	resp, err := c.Do(ctx, "GET", fmt.Sprintf("/forms/%d", formID), q, nil)
 	if err != nil {
 		return false, err
 	}
@@ -387,7 +392,7 @@ func isDashboardForm(ctx context.Context, c *apiclient.Client, formID int) (bool
 		return false, err
 	}
 	isDash := out.Data.Type == "system" && strings.EqualFold(out.Data.Title, dashboardsFormTitle)
-	dashboardFormCache.Store(formID, isDash)
+	dashboardFormCache.Store(key, isDash)
 	return isDash, nil
 }
 
